@@ -10,10 +10,11 @@ const RoomCard = ({ room, setRooms, isLoggedIn, onLoginRequired, currentNickname
   useEffect(() => {
     setRemark(room.remark);
     // Only update editStatus if the edit modal is not open (to prevent resetting user's selection)
+    // This prevents Firestore updates from resetting the dropdown while user is selecting
     if (!editOpen) {
       setEditStatus(room.status);
     }
-  }, [room, editOpen]);
+  }, [room.remark, room.status, editOpen]);
 
   const colorMap = {
     checked_out: "bg-red-200",
@@ -65,10 +66,12 @@ const RoomCard = ({ room, setRooms, isLoggedIn, onLoginRequired, currentNickname
     const wasClosed = editStatus === "closed" && room.status !== "closed";
     
     // Set flag to prevent Firestore listener from overwriting during manual edit
+    // Do this FIRST before any state updates
     if (setIsManualEdit) {
       setIsManualEdit(true);
     }
     
+    // Update rooms state
     setRooms(prev =>
       prev.map(r => 
         r.number === room.number 
@@ -83,13 +86,18 @@ const RoomCard = ({ room, setRooms, isLoggedIn, onLoginRequired, currentNickname
           : r
       )
     );
-    setEditOpen(false);
     
-    // Wait a bit for Firestore to sync, then re-enable listener
+    // Close modal after a brief delay to ensure state update is processed
+    setTimeout(() => {
+      setEditOpen(false);
+    }, 100);
+    
+    // Wait longer for Firestore to sync, then re-enable listener
+    // The debounced write takes 500ms, plus network latency, so we need more time
     if (setIsManualEdit) {
       setTimeout(() => {
         setIsManualEdit(false);
-      }, 2000); // 2 seconds should be enough for Firestore to sync
+      }, 5000); // 5 seconds to ensure Firestore sync completes before re-enabling listener
     }
   };
 
