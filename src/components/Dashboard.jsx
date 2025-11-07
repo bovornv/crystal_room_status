@@ -84,7 +84,6 @@ const Dashboard = () => {
         if (logoutTime > loginTime) {
           localStorage.removeItem('crystal_nickname');
           localStorage.removeItem('crystal_login_timestamp');
-          setShowLoginModal(true);
           setIsLoggedIn(false);
           setNickname("");
           return;
@@ -94,9 +93,8 @@ const Dashboard = () => {
       if (storedNickname) {
         setNickname(storedNickname);
         setIsLoggedIn(true);
-      } else {
-        setShowLoginModal(true);
       }
+      // Don't automatically show login modal - user clicks button instead
     };
 
     checkLoginStatus();
@@ -605,21 +603,33 @@ const Dashboard = () => {
       )}
 
       {/* Header */}
-      <div className="text-center mb-6">
-        <div className="flex justify-between items-center mb-2">
-          {isLoggedIn && (
-            <div className="text-sm text-[#63738A]">
-              <span>สวัสดี, {nickname}</span>
+      <div className="text-center mb-6 relative">
+        {/* Login/User Pill Button - Top Right */}
+        <div className="absolute top-0 right-0">
+          {isLoggedIn ? (
+            <div className="flex items-center gap-2">
+              <div className="px-4 py-2 bg-[#15803D] text-white rounded-full shadow-md text-sm font-medium flex items-center gap-2">
+                <span>👤</span>
+                <span>{nickname}</span>
+              </div>
               <button
                 onClick={handleLogout}
-                className="ml-2 text-[#15803D] hover:underline"
+                className="px-3 py-2 bg-gray-200 text-gray-700 rounded-full shadow-md hover:bg-gray-300 transition-colors text-sm"
+                title="ออกจากระบบ"
               >
-                (ออกจากระบบ)
+                ออกจากระบบ
               </button>
             </div>
+          ) : (
+            <button
+              onClick={() => setShowLoginModal(true)}
+              className="px-4 py-2 bg-[#15803D] text-white rounded-full shadow-md hover:bg-[#166534] transition-colors text-sm font-medium"
+            >
+              เข้าสู่ระบบ
+            </button>
           )}
-          <div className="flex-1"></div>
         </div>
+        
         <h1 className="text-2xl font-bold text-[#15803D]">
           Crystal Resort: Room Status
         </h1>
