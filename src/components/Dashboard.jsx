@@ -310,16 +310,16 @@ const Dashboard = () => {
         return;
       }
       
-      // Don't update if we recently uploaded a PDF (within last 15 seconds)
+      // Don't update if we recently uploaded a PDF (within last 60 seconds)
       const timeSinceLastPDF = Date.now() - lastPDFUploadTime.current;
-      if (timeSinceLastPDF < 15000) {
+      if (timeSinceLastPDF < 60000) {
         console.log(`Skipping Firestore update: PDF uploaded ${Math.round(timeSinceLastPDF/1000)}s ago`);
         return;
       }
       
-      // Don't update if we recently cleared data (within last 15 seconds)
+      // Don't update if we recently cleared data (within last 60 seconds)
       const timeSinceLastClear = Date.now() - lastClearDataTime.current;
-      if (timeSinceLastClear < 15000) {
+      if (timeSinceLastClear < 60000) {
         console.log(`Skipping Firestore update: Data cleared ${Math.round(timeSinceLastClear/1000)}s ago`);
         return;
       }
@@ -327,6 +327,22 @@ const Dashboard = () => {
       if (snapshot.exists()) {
         const data = snapshot.data();
         if (data.rooms && Array.isArray(data.rooms)) {
+          // Check if incoming Firestore data would overwrite recent changes
+          // Count rooms with moved_out or stay_clean status in both local and Firestore
+          const localNonVacantCount = rooms.filter(r => 
+            r.status === "moved_out" || r.status === "stay_clean" || r.status === "checked_out"
+          ).length;
+          const firestoreNonVacantCount = data.rooms.filter(r => 
+            r.status === "moved_out" || r.status === "stay_clean" || r.status === "checked_out"
+          ).length;
+          
+          // If we have more non-vacant rooms locally than in Firestore, don't overwrite
+          // This means we just made changes that haven't synced yet
+          if (localNonVacantCount > firestoreNonVacantCount && timeSinceLastPDF < 120000) {
+            console.log(`Skipping Firestore update: Local state has more recent changes (local: ${localNonVacantCount}, firestore: ${firestoreNonVacantCount})`);
+            return;
+          }
+          
           isUpdatingFromFirestore.current = true;
           setRooms(data.rooms);
           // Also sync departure/inhouse rooms if they exist
@@ -513,11 +529,11 @@ const Dashboard = () => {
       
       // Wait longer for Firestore to sync and prevent listener from overwriting
       // The debounced write takes 500ms, plus network latency, so we need more time
-      // Keep the flag for 10 seconds, and timestamp guard for 15 seconds total
+      // Keep the flag for 15 seconds, and timestamp guard for 60 seconds total
       setTimeout(() => {
         isUploadingPDF.current = false;
-        console.log("PDF upload flag reset (10s timeout)");
-      }, 10000); // 10 seconds to ensure Firestore sync completes before re-enabling listener
+        console.log("PDF upload flag reset (15s timeout)");
+      }, 15000); // 15 seconds to ensure Firestore sync completes before re-enabling listener
     } catch (error) {
       console.error("Error processing PDF:", error);
       alert(`เกิดข้อผิดพลาดในการประมวลผล PDF: ${error.message}`);
