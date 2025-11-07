@@ -47,6 +47,19 @@ const RoomCard = ({ room, setRooms, isLoggedIn, onLoginRequired, currentNickname
   };
 
   const handleSelectRoom = () => {
+    // Require login
+    if (!isLoggedIn || !currentNickname) {
+      onLoginRequired();
+      return;
+    }
+    
+    // Set flag to prevent Firestore listener from overwriting during selection
+    if (setIsManualEdit) {
+      setIsManualEdit(true);
+    }
+    
+    console.log(`Selecting room ${room.number} by ${currentNickname}`);
+    
     setRooms(prev =>
       prev.map(r => 
         r.number === room.number 
@@ -58,7 +71,19 @@ const RoomCard = ({ room, setRooms, isLoggedIn, onLoginRequired, currentNickname
           : r
       )
     );
-    setEditOpen(false);
+    
+    // Close modal after a brief delay to ensure state update is processed
+    setTimeout(() => {
+      setEditOpen(false);
+    }, 100);
+    
+    // Wait for Firestore to sync, then re-enable listener
+    if (setIsManualEdit) {
+      setTimeout(() => {
+        setIsManualEdit(false);
+        console.log("Room selection flag reset");
+      }, 5000); // 5 seconds to ensure Firestore sync completes
+    }
   };
 
   const saveEdit = () => {
@@ -161,8 +186,20 @@ const RoomCard = ({ room, setRooms, isLoggedIn, onLoginRequired, currentNickname
 
       {/* Edit Status/Maid Modal */}
       {editOpen && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl p-4 w-80 shadow-lg">
+        <div 
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+          onClick={(e) => {
+            // Close modal if clicking on backdrop (not on modal content)
+            if (e.target === e.currentTarget) {
+              setEditOpen(false);
+              setEditStatus(room.status);
+            }
+          }}
+        >
+          <div 
+            className="bg-white rounded-2xl p-4 w-80 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
             <h2 className="font-medium mb-3 text-[#0B1320]">
               แก้ไขห้อง {room.number}
             </h2>
@@ -189,8 +226,12 @@ const RoomCard = ({ room, setRooms, isLoggedIn, onLoginRequired, currentNickname
 
             <div className="flex justify-between gap-2 mt-4">
               <button
-                onClick={handleSelectRoom}
-                className="px-4 py-2 bg-[#15803D] text-white rounded-lg hover:bg-[#166534] transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleSelectRoom();
+                }}
+                className="px-4 py-2 bg-[#15803D] text-white rounded-lg hover:bg-[#166534] transition-colors cursor-pointer"
+                type="button"
               >
                 เลือกห้องนี้
               </button>
