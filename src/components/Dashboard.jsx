@@ -196,6 +196,7 @@ const Dashboard = () => {
   const isInitialLoad = useRef(true);
   const isUploadingPDF = useRef(false);
   const isManualEdit = useRef(false);
+  const lastPDFUploadTime = useRef(0); // Track when PDF was last uploaded
 
   // Default rooms data (fallback if Firestore is empty)
   const defaultRooms = [
@@ -304,6 +305,14 @@ const Dashboard = () => {
     const unsubscribe = onSnapshot(roomsDoc, (snapshot) => {
       // Don't update from Firestore if we're currently uploading a PDF or doing manual edit
       if (isUploadingPDF.current || isManualEdit.current) {
+        console.log("Skipping Firestore update: PDF upload or manual edit in progress");
+        return;
+      }
+      
+      // Don't update if we recently uploaded a PDF (within last 15 seconds)
+      const timeSinceLastPDF = Date.now() - lastPDFUploadTime.current;
+      if (timeSinceLastPDF < 15000) {
+        console.log(`Skipping Firestore update: PDF uploaded ${Math.round(timeSinceLastPDF/1000)}s ago`);
         return;
       }
       
@@ -382,6 +391,7 @@ const Dashboard = () => {
     
     // Set flag to prevent Firestore listener from overwriting during upload
     isUploadingPDF.current = true;
+    lastPDFUploadTime.current = Date.now(); // Record upload time
     
     try {
       console.log(`Starting PDF upload: ${type}`);
@@ -495,14 +505,16 @@ const Dashboard = () => {
       
       // Wait longer for Firestore to sync and prevent listener from overwriting
       // The debounced write takes 500ms, plus network latency, so we need more time
+      // Keep the flag for 10 seconds, and timestamp guard for 15 seconds total
       setTimeout(() => {
         isUploadingPDF.current = false;
-        console.log("PDF upload flag reset");
-      }, 5000); // 5 seconds to ensure Firestore sync completes before re-enabling listener
+        console.log("PDF upload flag reset (10s timeout)");
+      }, 10000); // 10 seconds to ensure Firestore sync completes before re-enabling listener
     } catch (error) {
       console.error("Error processing PDF:", error);
       alert(`เกิดข้อผิดพลาดในการประมวลผล PDF: ${error.message}`);
       isUploadingPDF.current = false;
+      lastPDFUploadTime.current = 0; // Reset timestamp on error
     }
   };
 
