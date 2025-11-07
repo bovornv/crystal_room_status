@@ -610,13 +610,29 @@ const Dashboard = () => {
     setRotation(prev => (prev + 90) % 360);
   };
 
+  // Calculate if we're in rotated state (90 or 270 degrees)
+  const isRotated = rotation === 90 || rotation === 270;
+
   return (
-    <div className="min-h-screen bg-[#F6F8FA] font-['Noto_Sans_Thai'] relative">
+    <div 
+      className="bg-[#F6F8FA] font-['Noto_Sans_Thai'] relative overflow-hidden"
+      style={{
+        width: isRotated ? '100vh' : '100vw',
+        height: isRotated ? '100vw' : '100vh',
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        transition: 'width 0.3s ease-in-out, height 0.3s ease-in-out',
+      }}
+    >
       {/* Rotation Button - Fixed position, always visible */}
       <button
         onClick={handleRotate}
         className="fixed bottom-4 right-4 z-40 px-4 py-3 bg-[#15803D] text-white rounded-full shadow-lg hover:bg-[#166534] transition-colors text-sm font-medium flex items-center gap-2"
         title="หมุนหน้าจอ 90 องศา"
+        style={{
+          transform: isRotated ? 'rotate(-90deg)' : 'none',
+        }}
       >
         <span>🔄</span>
         <span className="hidden sm:inline">หมุน</span>
@@ -627,7 +643,13 @@ const Dashboard = () => {
         className="transition-transform duration-300 ease-in-out origin-center p-4"
         style={{
           transform: `rotate(${rotation}deg)`,
-          minHeight: '100vh',
+          width: isRotated ? '100vh' : '100%',
+          height: isRotated ? '100vw' : '100%',
+          position: 'absolute',
+          top: isRotated ? '50%' : '0',
+          left: isRotated ? '50%' : '0',
+          marginTop: isRotated ? '-50vw' : '0',
+          marginLeft: isRotated ? '-50vh' : '0',
         }}
       >
         {/* Login Modal */}
