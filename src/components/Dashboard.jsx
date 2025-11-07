@@ -198,6 +198,7 @@ const Dashboard = () => {
   const isManualEdit = useRef(false);
   const lastPDFUploadTime = useRef(0); // Track when PDF was last uploaded
   const lastClearDataTime = useRef(0); // Track when data was last cleared
+  const lastManualEditTime = useRef(0); // Track when manual edit was last made
 
   // Default rooms data (fallback if Firestore is empty)
   const defaultRooms = [
@@ -324,32 +325,70 @@ const Dashboard = () => {
         return;
       }
       
+      // Don't update if we recently made manual edits (within last 5 minutes)
+      // Manual edits should persist for the whole day, so we protect them longer
+      const timeSinceLastManualEdit = Date.now() - lastManualEditTime.current;
+      if (timeSinceLastManualEdit < 300000) { // 5 minutes = 300000ms
+        console.log(`Skipping Firestore update: Manual edit made ${Math.round(timeSinceLastManualEdit/1000)}s ago`);
+        return;
+      }
+      
       if (snapshot.exists()) {
         const data = snapshot.data();
         if (data.rooms && Array.isArray(data.rooms)) {
-          // Check if incoming Firestore data would overwrite recent changes
-          // Count rooms with moved_out or stay_clean status in both local and Firestore
-          const localNonVacantCount = rooms.filter(r => 
-            r.status === "moved_out" || r.status === "stay_clean" || r.status === "checked_out"
-          ).length;
-          const firestoreNonVacantCount = data.rooms.filter(r => 
-            r.status === "moved_out" || r.status === "stay_clean" || r.status === "checked_out"
-          ).length;
+          // Smart comparison: only update if Firestore has meaningful changes that don't conflict with local state
+          // Check room-by-room to see if we should update
+          let shouldUpdate = true;
+          let conflictingRooms = 0;
           
-          // If we have more non-vacant rooms locally than in Firestore, don't overwrite
-          // This means we just made changes that haven't synced yet
-          if (localNonVacantCount > firestoreNonVacantCount && timeSinceLastPDF < 120000) {
-            console.log(`Skipping Firestore update: Local state has more recent changes (local: ${localNonVacantCount}, firestore: ${firestoreNonVacantCount})`);
-            return;
+          // Compare each room - if local room has a non-vacant status and Firestore has vacant, don't overwrite
+          // This protects user changes (green, red, yellow rooms) from being reset to white
+          // Room status should persist for the whole day unless explicitly changed by user
+          rooms.forEach(localRoom => {
+            const firestoreRoom = data.rooms.find(fr => String(fr.number) === String(localRoom.number));
+            if (firestoreRoom) {
+              // If local room is non-vacant (user made a change) and Firestore is vacant, it's a conflict
+              const localIsNonVacant = localRoom.status !== "vacant" && localRoom.status !== "long_stay";
+              const firestoreIsVacant = firestoreRoom.status === "vacant";
+              
+              // Also check if local room has cleaned status (green) - this should NEVER be overwritten
+              const localIsCleaned = localRoom.status === "cleaned";
+              
+              if ((localIsNonVacant && firestoreIsVacant) || (localIsCleaned && firestoreRoom.status !== "cleaned")) {
+                conflictingRooms++;
+              }
+            }
+          });
+          
+          // If we have conflicts (local has changes that Firestore would overwrite), don't update
+          // This ensures user changes persist for the whole day
+          if (conflictingRooms > 0) {
+            console.log(`Skipping Firestore update: Would overwrite ${conflictingRooms} rooms with user changes`);
+            shouldUpdate = false;
           }
           
-          isUpdatingFromFirestore.current = true;
-          setRooms(data.rooms);
-          // Also sync departure/inhouse rooms if they exist
-          if (data.departureRooms) setDepartureRooms(data.departureRooms);
-          if (data.inhouseRooms) setInhouseRooms(data.inhouseRooms);
-          isUpdatingFromFirestore.current = false;
-          isInitialLoad.current = false;
+          // Also check if we have more non-vacant rooms locally (indicates recent changes)
+          const localNonVacantCount = rooms.filter(r => 
+            r.status !== "vacant" && r.status !== "long_stay"
+          ).length;
+          const firestoreNonVacantCount = data.rooms.filter(r => 
+            r.status !== "vacant" && r.status !== "long_stay"
+          ).length;
+          
+          if (localNonVacantCount > firestoreNonVacantCount && timeSinceLastPDF < 120000) {
+            console.log(`Skipping Firestore update: Local state has more recent changes (local: ${localNonVacantCount}, firestore: ${firestoreNonVacantCount})`);
+            shouldUpdate = false;
+          }
+          
+          if (shouldUpdate) {
+            isUpdatingFromFirestore.current = true;
+            setRooms(data.rooms);
+            // Also sync departure/inhouse rooms if they exist
+            if (data.departureRooms) setDepartureRooms(data.departureRooms);
+            if (data.inhouseRooms) setInhouseRooms(data.inhouseRooms);
+            isUpdatingFromFirestore.current = false;
+            isInitialLoad.current = false;
+          }
         }
       } else {
         // Document doesn't exist, initialize with default rooms
@@ -907,7 +946,12 @@ const Dashboard = () => {
                     onLoginRequired={() => setShowLoginModal(true)}
                     currentNickname={nickname}
                     currentDate={remarkDateString}
-                    setIsManualEdit={(value) => { isManualEdit.current = value; }}
+                    setIsManualEdit={(value) => { 
+                      isManualEdit.current = value;
+                      if (value) {
+                        lastManualEditTime.current = Date.now();
+                      }
+                    }}
                   />
                 ))}
               </div>
