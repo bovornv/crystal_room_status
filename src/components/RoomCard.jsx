@@ -29,6 +29,17 @@ const RoomCard = ({ room, setRooms, isLoggedIn, onLoginRequired, currentNickname
   const isSuite = room.type.toUpperCase().startsWith("S");
 
   const saveRemark = () => {
+    // Require login
+    if (!isLoggedIn || !currentNickname) {
+      onLoginRequired();
+      return;
+    }
+    
+    // Set flag to prevent Firestore listener from overwriting during remark save
+    if (setIsManualEdit) {
+      setIsManualEdit(true);
+    }
+    
     let finalRemark = remark.trim();
     
     // If remark is not empty, append "รายงานโดย [nickname] [day month]"
@@ -40,10 +51,24 @@ const RoomCard = ({ room, setRooms, isLoggedIn, onLoginRequired, currentNickname
     }
     // If remark is empty, keep it empty (don't add anything)
     
+    console.log(`Saving remark for room ${room.number}: ${finalRemark.substring(0, 50)}...`);
+    
     setRooms(prev =>
       prev.map(r => r.number === room.number ? { ...r, remark: finalRemark } : r)
     );
-    setRemarkOpen(false);
+    
+    // Close modal after a brief delay to ensure state update is processed
+    setTimeout(() => {
+      setRemarkOpen(false);
+    }, 100);
+    
+    // Wait for Firestore to sync, then re-enable listener
+    if (setIsManualEdit) {
+      setTimeout(() => {
+        setIsManualEdit(false);
+        console.log("Remark save flag reset");
+      }, 5000); // 5 seconds to ensure Firestore sync completes
+    }
   };
 
   const handleSelectRoom = () => {
@@ -260,8 +285,19 @@ const RoomCard = ({ room, setRooms, isLoggedIn, onLoginRequired, currentNickname
 
       {/* Remark Modal */}
       {remarkOpen && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl p-4 w-80 shadow-lg">
+        <div 
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+          onClick={(e) => {
+            // Close modal if clicking on backdrop (not on modal content)
+            if (e.target === e.currentTarget) {
+              setRemarkOpen(false);
+            }
+          }}
+        >
+          <div 
+            className="bg-white rounded-2xl p-4 w-80 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
             <h2 className="font-medium mb-2 text-[#0B1320]">
               หมายเหตุ ห้อง {room.number}
             </h2>
@@ -269,17 +305,26 @@ const RoomCard = ({ room, setRooms, isLoggedIn, onLoginRequired, currentNickname
               value={remark}
               onChange={e => setRemark(e.target.value)}
               className="w-full border rounded-lg p-2 text-sm h-24"
+              placeholder="กรอกหมายเหตุ..."
             />
             <div className="flex justify-end gap-2 mt-3">
               <button 
-                onClick={() => setRemarkOpen(false)}
-                className="px-3 py-1 bg-gray-100 rounded-lg"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setRemarkOpen(false);
+                }}
+                className="px-3 py-1 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors cursor-pointer"
+                type="button"
               >
                 ปิด
               </button>
               <button 
-                onClick={saveRemark}
-                className="px-3 py-1 bg-[#15803D] text-white rounded-lg"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  saveRemark();
+                }}
+                className="px-3 py-1 bg-[#15803D] text-white rounded-lg hover:bg-[#166534] transition-colors cursor-pointer"
+                type="button"
               >
                 บันทึก
               </button>
