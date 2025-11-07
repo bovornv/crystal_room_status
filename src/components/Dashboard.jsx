@@ -356,7 +356,10 @@ const Dashboard = () => {
   }, [rooms, departureRooms, inhouseRooms]);
 
   const handleUpload = async (type, file) => {
-    if (!file) return;
+    if (!file) {
+      console.log("No file selected");
+      return;
+    }
     
     // Require login for PDF uploads
     if (!isLoggedIn) {
@@ -367,102 +370,127 @@ const Dashboard = () => {
     // Set flag to prevent Firestore listener from overwriting during upload
     isUploadingPDF.current = true;
     
-    const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-
-    let allText = "";
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const textContent = await page.getTextContent();
-      const pageText = textContent.items.map(item => item.str).join(" ");
-      allText += " " + pageText;
-    }
-
-    // Extract 3-digit room numbers from text (e.g., 101, 205, 603)
-    // Filter to only valid room numbers (101-699, first digit 1-6)
-    const roomMatches = allText.match(/\b\d{3}\b/g) || [];
-    const validRoomNumbers = roomMatches
-      .filter(num => {
-        const firstDigit = parseInt(num[0]);
-        return firstDigit >= 1 && firstDigit <= 6; // Valid floors are 1-6
-      });
-    const uniqueRooms = [...new Set(validRoomNumbers)];
-
-    if (uniqueRooms.length === 0) {
-      alert("No room numbers found in the PDF!");
-      return;
-    }
-
-    console.log("Detected rooms from PDF:", uniqueRooms);
-
-    // Track rooms from each report type - filter to only valid room numbers that exist in rooms array
-    const validExistingRooms = uniqueRooms.filter(roomNum => {
-      return rooms.some(r => String(r.number) === String(roomNum));
-    });
-
-    if (type === "departure") {
-      setDepartureRooms([...new Set(validExistingRooms)]);
-    } else if (type === "inhouse") {
-      setInhouseRooms([...new Set(validExistingRooms)]);
-    }
-
-    // Store report metadata in localStorage for cleanup after 5 days
     try {
-      const storedReports = JSON.parse(localStorage.getItem('crystal_reports') || '[]');
-      storedReports.push({
-        type: type,
-        timestamp: new Date().getTime(),
-        roomNumbers: validExistingRooms
+      console.log(`Starting PDF upload: ${type}`);
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+      let allText = "";
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items.map(item => item.str).join(" ");
+        allText += " " + pageText;
+      }
+
+      // Extract 3-digit room numbers from text (e.g., 101, 205, 603)
+      // Filter to only valid room numbers (101-699, first digit 1-6)
+      const roomMatches = allText.match(/\b\d{3}\b/g) || [];
+      const validRoomNumbers = roomMatches
+        .filter(num => {
+          const firstDigit = parseInt(num[0]);
+          return firstDigit >= 1 && firstDigit <= 6; // Valid floors are 1-6
+        });
+      const uniqueRooms = [...new Set(validRoomNumbers)];
+
+      console.log("All detected room numbers:", uniqueRooms);
+
+      if (uniqueRooms.length === 0) {
+        alert("ไม่พบหมายเลขห้องในไฟล์ PDF!");
+        isUploadingPDF.current = false;
+        return;
+      }
+
+      // Track rooms from each report type - filter to only valid room numbers that exist in rooms array
+      const validExistingRooms = uniqueRooms.filter(roomNum => {
+        return rooms.some(r => String(r.number) === String(roomNum));
       });
-      localStorage.setItem('crystal_reports', JSON.stringify(storedReports));
-    } catch (error) {
-      console.error("Error storing report metadata:", error);
-    }
 
-    // Rooms that should never be updated by PDF uploads (long stay rooms)
-    const protectedRooms = ["206", "207", "503", "608", "609"];
+      console.log("Valid existing rooms:", validExistingRooms);
 
-    // Update ONLY rooms found in the PDF - preserve all other properties for rooms not in PDF
-    setRooms(prev =>
-      prev.map(r => {
-        // Skip protected rooms (long stay) - never update them
-        if (protectedRooms.includes(r.number)) {
-          return r;
-        }
+      if (validExistingRooms.length === 0) {
+        alert(`พบหมายเลขห้อง ${uniqueRooms.length} ห้องใน PDF แต่ไม่มีห้องเหล่านี้ในระบบ`);
+        isUploadingPDF.current = false;
+        return;
+      }
 
-        // Convert to string for comparison to ensure exact match
-        const roomNumStr = String(r.number);
-        const isInPDF = uniqueRooms.some(pdfRoom => String(pdfRoom) === roomNumStr);
-        
-        // Only update if this room number was found in the PDF
-        if (isInPDF) {
-          if (type === "departure") {
-            // Departure report: update to moved_out (takes priority)
-            return { ...r, status: "moved_out", cleanedToday: false };
-          }
-          if (type === "inhouse") {
-            // In-House report: only update if NOT already moved_out or checked_out (departure takes priority)
-            if (r.status !== "moved_out" && r.status !== "checked_out") {
-              return { ...r, status: "stay_clean", cleanedToday: false };
-            }
-            // If already moved_out or checked_out, leave it unchanged (departure priority)
+      if (type === "departure") {
+        setDepartureRooms([...new Set(validExistingRooms)]);
+      } else if (type === "inhouse") {
+        setInhouseRooms([...new Set(validExistingRooms)]);
+      }
+
+      // Store report metadata in localStorage for cleanup after 5 days
+      try {
+        const storedReports = JSON.parse(localStorage.getItem('crystal_reports') || '[]');
+        storedReports.push({
+          type: type,
+          timestamp: new Date().getTime(),
+          roomNumbers: validExistingRooms
+        });
+        localStorage.setItem('crystal_reports', JSON.stringify(storedReports));
+      } catch (error) {
+        console.error("Error storing report metadata:", error);
+      }
+
+      // Rooms that should never be updated by PDF uploads (long stay rooms)
+      const protectedRooms = ["206", "207", "503", "608", "609"];
+
+      // Update ONLY rooms found in the PDF - preserve all other properties for rooms not in PDF
+      setRooms(prev => {
+        const updatedRooms = prev.map(r => {
+          // Skip protected rooms (long stay) - never update them
+          if (protectedRooms.includes(r.number)) {
             return r;
           }
-        }
-        // Return room completely unchanged if not in PDF
-        return r;
-      })
-    );
 
-    // Show success toast with count
-    const statusText = type === "departure" ? "ย้ายออก" : "พักต่อ";
-    alert(`${uniqueRooms.length} ห้องถูกอัปเดตเป็นสถานะ ${statusText}`);
-    
-    // Wait longer for Firestore to sync and prevent listener from overwriting
-    // The debounced write takes 500ms, plus network latency, so we need more time
-    setTimeout(() => {
+          // Convert to string for comparison to ensure exact match
+          const roomNumStr = String(r.number);
+          const isInPDF = validExistingRooms.some(pdfRoom => String(pdfRoom) === roomNumStr);
+          
+          // Only update if this room number was found in the PDF
+          if (isInPDF) {
+            if (type === "departure") {
+              // Departure report: update to moved_out (takes priority)
+              console.log(`Updating room ${r.number} to moved_out`);
+              return { ...r, status: "moved_out", cleanedToday: false };
+            }
+            if (type === "inhouse") {
+              // In-House report: only update if NOT already moved_out or checked_out (departure takes priority)
+              if (r.status !== "moved_out" && r.status !== "checked_out") {
+                console.log(`Updating room ${r.number} to stay_clean`);
+                return { ...r, status: "stay_clean", cleanedToday: false };
+              }
+              // If already moved_out or checked_out, leave it unchanged (departure priority)
+              return r;
+            }
+          }
+          // Return room completely unchanged if not in PDF
+          return r;
+        });
+        console.log("Updated rooms count:", updatedRooms.filter(r => {
+          const roomNumStr = String(r.number);
+          const isInPDF = validExistingRooms.some(pdfRoom => String(pdfRoom) === roomNumStr);
+          return isInPDF && (type === "departure" ? r.status === "moved_out" : r.status === "stay_clean");
+        }).length);
+        return updatedRooms;
+      });
+
+      // Show success toast with count
+      const statusText = type === "departure" ? "ย้ายออก" : "พักต่อ";
+      alert(`${validExistingRooms.length} ห้องถูกอัปเดตเป็นสถานะ ${statusText}`);
+      
+      // Wait longer for Firestore to sync and prevent listener from overwriting
+      // The debounced write takes 500ms, plus network latency, so we need more time
+      setTimeout(() => {
+        isUploadingPDF.current = false;
+        console.log("PDF upload flag reset");
+      }, 5000); // 5 seconds to ensure Firestore sync completes before re-enabling listener
+    } catch (error) {
+      console.error("Error processing PDF:", error);
+      alert(`เกิดข้อผิดพลาดในการประมวลผล PDF: ${error.message}`);
       isUploadingPDF.current = false;
-    }, 5000); // 5 seconds to ensure Firestore sync completes before re-enabling listener
+    }
   };
 
   const floors = [6,5,4,3,2,1].map(f =>
