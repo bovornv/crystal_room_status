@@ -58,6 +58,7 @@ const Dashboard = () => {
   const [nickname, setNickname] = useState("");
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showClearConfirmModal, setShowClearConfirmModal] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
   const [rotation, setRotation] = useState(0); // 0, 90, 180, 270 degrees
   
   // Update time every minute
@@ -68,6 +69,17 @@ const Dashboard = () => {
     
     return () => clearInterval(timer);
   }, []);
+
+  // Close user menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (showUserMenu && !event.target.closest('.user-menu-container')) {
+        setShowUserMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showUserMenu]);
 
   // Check if user is logged in from localStorage on mount and verify logout status
   useEffect(() => {
@@ -533,6 +545,7 @@ const Dashboard = () => {
     const logoutTimestamp = new Date().getTime();
     setIsLoggedIn(false);
     setNickname("");
+    setShowUserMenu(false); // Close menu when logging out
     // Store logout timestamp to sync across devices
     localStorage.setItem('crystal_logout_timestamp', logoutTimestamp.toString());
     localStorage.removeItem('crystal_nickname');
@@ -607,18 +620,18 @@ const Dashboard = () => {
       >
         {/* Login Modal */}
         {showLoginModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl p-6 w-96 shadow-lg">
-            <h2 className="font-semibold text-xl mb-4 text-center text-[#15803D]">
-              เข้าสู่ระบบ
-            </h2>
-            <p className="text-sm text-[#63738A] mb-4 text-center">
-              กรุณากรอกชื่อเล่นเพื่อแก้ไขข้อมูลห้อง
-            </p>
-            <LoginModal onLogin={handleLogin} />
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+            <div className="bg-white rounded-2xl p-6 w-96 shadow-lg">
+              <h2 className="font-semibold text-xl mb-4 text-center text-[#15803D]">
+                เข้าสู่ระบบ
+              </h2>
+              <p className="text-sm text-[#63738A] mb-4 text-center">
+                กรุณากรอกชื่อเล่นเพื่อแก้ไขข้อมูลห้อง
+              </p>
+              <LoginModal onLogin={handleLogin} />
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
       {/* Clear Data Confirmation Modal */}
       {showClearConfirmModal && (
@@ -656,20 +669,36 @@ const Dashboard = () => {
       {/* Header */}
       <div className="text-center mb-6 relative">
         {/* Login/User Pill Button - Top Right */}
-        <div className="absolute top-0 right-0">
+        <div className="absolute top-0 right-0 user-menu-container">
           {isLoggedIn ? (
-            <div className="flex items-center gap-2">
-              <div className="px-4 py-2 bg-[#15803D] text-white rounded-full shadow-md text-sm font-medium flex items-center gap-2">
+            <div className="relative">
+              <button
+                onClick={() => setShowUserMenu(!showUserMenu)}
+                className="px-4 py-2 bg-[#15803D] text-white rounded-full shadow-md hover:bg-[#166534] transition-colors text-sm font-medium flex items-center gap-2"
+              >
                 <span>👤</span>
                 <span>{nickname}</span>
-              </div>
-              <button
-                onClick={handleLogout}
-                className="px-3 py-2 bg-gray-200 text-gray-700 rounded-full shadow-md hover:bg-gray-300 transition-colors text-sm"
-                title="ออกจากระบบ"
-              >
-                ออกจากระบบ
+                <span className="text-xs">▼</span>
               </button>
+              
+              {/* Dropdown Menu */}
+              {showUserMenu && (
+                <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
+                  <div className="py-1">
+                    <div className="px-4 py-2 text-sm text-gray-700 border-b border-gray-100">
+                      <div className="font-medium">{nickname}</div>
+                      <div className="text-xs text-gray-500">ผู้ใช้ที่เข้าสู่ระบบ</div>
+                    </div>
+                    <button
+                      onClick={handleLogout}
+                      className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2"
+                    >
+                      <span>🚪</span>
+                      <span>ออกจากระบบ</span>
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <button
