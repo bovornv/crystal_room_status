@@ -460,10 +460,11 @@ const Dashboard = () => {
     const statusText = type === "departure" ? "ย้ายออก" : "พักต่อ";
     alert(`${uniqueRooms.length} ห้องถูกอัปเดตเป็นสถานะ ${statusText}`);
     
-    // Wait a bit for Firestore to sync, then re-enable listener
+    // Wait longer for Firestore to sync and prevent listener from overwriting
+    // The debounced write takes 500ms, plus network latency, so we need more time
     setTimeout(() => {
       isUploadingPDF.current = false;
-    }, 2000); // 2 seconds should be enough for Firestore to sync
+    }, 5000); // 5 seconds to ensure Firestore sync completes before re-enabling listener
   };
 
   const floors = [6,5,4,3,2,1].map(f =>
