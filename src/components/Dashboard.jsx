@@ -58,6 +58,7 @@ const Dashboard = () => {
   const [nickname, setNickname] = useState("");
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showClearConfirmModal, setShowClearConfirmModal] = useState(false);
+  const [rotation, setRotation] = useState(0); // 0, 90, 180, 270 degrees
   
   // Update time every minute
   useEffect(() => {
@@ -580,10 +581,32 @@ const Dashboard = () => {
     setShowClearConfirmModal(false);
   };
 
+  const handleRotate = () => {
+    setRotation(prev => (prev + 90) % 360);
+  };
+
   return (
-    <div className="min-h-screen bg-[#F6F8FA] font-['Noto_Sans_Thai'] p-4">
-      {/* Login Modal */}
-      {showLoginModal && (
+    <div className="min-h-screen bg-[#F6F8FA] font-['Noto_Sans_Thai'] relative">
+      {/* Rotation Button - Fixed position, always visible */}
+      <button
+        onClick={handleRotate}
+        className="fixed bottom-4 right-4 z-40 px-4 py-3 bg-[#15803D] text-white rounded-full shadow-lg hover:bg-[#166534] transition-colors text-sm font-medium flex items-center gap-2"
+        title="หมุนหน้าจอ 90 องศา"
+      >
+        <span>🔄</span>
+        <span className="hidden sm:inline">หมุน</span>
+      </button>
+
+      {/* Dashboard Content with Rotation */}
+      <div
+        className="transition-transform duration-300 ease-in-out origin-center p-4"
+        style={{
+          transform: `rotate(${rotation}deg)`,
+          minHeight: '100vh',
+        }}
+      >
+        {/* Login Modal */}
+        {showLoginModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl p-6 w-96 shadow-lg">
             <h2 className="font-semibold text-xl mb-4 text-center text-[#15803D]">
@@ -815,6 +838,7 @@ const Dashboard = () => {
             )}
           </tbody>
         </table>
+      </div>
       </div>
     </div>
   );
