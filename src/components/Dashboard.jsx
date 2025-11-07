@@ -197,6 +197,7 @@ const Dashboard = () => {
   const isUploadingPDF = useRef(false);
   const isManualEdit = useRef(false);
   const lastPDFUploadTime = useRef(0); // Track when PDF was last uploaded
+  const lastClearDataTime = useRef(0); // Track when data was last cleared
 
   // Default rooms data (fallback if Firestore is empty)
   const defaultRooms = [
@@ -313,6 +314,13 @@ const Dashboard = () => {
       const timeSinceLastPDF = Date.now() - lastPDFUploadTime.current;
       if (timeSinceLastPDF < 15000) {
         console.log(`Skipping Firestore update: PDF uploaded ${Math.round(timeSinceLastPDF/1000)}s ago`);
+        return;
+      }
+      
+      // Don't update if we recently cleared data (within last 15 seconds)
+      const timeSinceLastClear = Date.now() - lastClearDataTime.current;
+      if (timeSinceLastClear < 15000) {
+        console.log(`Skipping Firestore update: Data cleared ${Math.round(timeSinceLastClear/1000)}s ago`);
         return;
       }
       
@@ -576,6 +584,10 @@ const Dashboard = () => {
   };
 
   const handleClearDataConfirm = () => {
+    // Set flag to prevent Firestore listener from overwriting during clear operation
+    isManualEdit.current = true;
+    lastClearDataTime.current = Date.now(); // Record clear time
+    
     // Protected rooms that should not be reset
     const protectedRooms = ["206", "207", "503", "608", "609"];
 
@@ -602,8 +614,22 @@ const Dashboard = () => {
     setDepartureRooms([]);
     setInhouseRooms([]);
     
+    // Clear localStorage reports
+    try {
+      localStorage.removeItem('crystal_reports');
+      console.log("Cleared localStorage reports");
+    } catch (error) {
+      console.error("Error clearing localStorage reports:", error);
+    }
+    
     // Close confirmation modal
     setShowClearConfirmModal(false);
+    
+    // Wait for Firestore to sync, then re-enable listener
+    setTimeout(() => {
+      isManualEdit.current = false;
+      console.log("Clear data flag reset");
+    }, 5000); // 5 seconds to ensure Firestore sync completes
   };
 
   const handleRotate = () => {
