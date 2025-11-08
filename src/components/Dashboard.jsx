@@ -356,15 +356,30 @@ const Dashboard = () => {
           const firestoreInhouseEmpty = !data.inhouseRooms || data.inhouseRooms.length === 0;
           const looksLikeClearData = firestoreNonVacantCount <= 5 && firestoreDepartureEmpty && firestoreInhouseEmpty;
           
-          // Only protect if we recently made changes on THIS device
+          // Check if local changes are from a different day (stale data)
+          // Data should persist for the whole day, but should sync when it's a new day
+          const today = new Date();
+          const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+          // Check if timestamps are from today (fresh) or from yesterday/never (stale)
+          const localPDFIsFromToday = lastPDFUploadTime.current > 0 && lastPDFUploadTime.current >= todayStart;
+          const localEditIsFromToday = lastManualEditTime.current > 0 && lastManualEditTime.current >= todayStart;
+          // Data is stale if we haven't made any changes today (no timestamps from today)
+          // This means either: no changes ever (both 0), or changes from yesterday
+          const localDataIsStale = !localPDFIsFromToday && !localEditIsFromToday;
+          
+          // Only protect if we recently made changes on THIS device TODAY
           // If we haven't made changes recently (or never made changes), allow updates from other devices
-          const hasRecentLocalChanges = (lastPDFUploadTime.current > 0 && (Date.now() - lastPDFUploadTime.current) < 120000) ||
-                                       (lastManualEditTime.current > 0 && (Date.now() - lastManualEditTime.current) < 300000);
+          const hasRecentLocalChanges = (lastPDFUploadTime.current > 0 && (Date.now() - lastPDFUploadTime.current) < 120000 && localPDFIsFromToday) ||
+                                       (lastManualEditTime.current > 0 && (Date.now() - lastManualEditTime.current) < 300000 && localEditIsFromToday);
           
           // Always allow clear data operations from other devices
           // Clear data is an intentional operation that should sync across all devices
           if (looksLikeClearData) {
             console.log("Allowing Firestore update: Clear data operation from another device detected - syncing cleared data");
+            shouldUpdate = true;
+          } else if (localDataIsStale) {
+            // Local data is from yesterday - always allow updates from Firestore (today's data)
+            console.log("Allowing Firestore update: Local data is stale (from yesterday), syncing today's data from other devices");
             shouldUpdate = true;
           } else if (hasRecentLocalChanges) {
             // Compare each room - protect local changes only if we made them recently
