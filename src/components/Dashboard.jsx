@@ -198,6 +198,7 @@ const Dashboard = () => {
   const lastPDFUploadTime = useRef(0); // Track when PDF was last uploaded
   const lastClearDataTime = useRef(0); // Track when data was last cleared
   const lastManualEditTime = useRef(0); // Track when manual edit was last made
+  const lastReceivedClearDataTime = useRef(0); // Track when we last received cleared data from Firestore
 
   // Default rooms data (fallback if Firestore is empty)
   const defaultRooms = [
@@ -388,6 +389,7 @@ const Dashboard = () => {
           // Clear data is an intentional operation that should sync across all devices
           if (looksLikeClearData) {
             console.log("Allowing Firestore update: Clear data operation from another device detected - syncing cleared data");
+            lastReceivedClearDataTime.current = Date.now(); // Track when we received cleared data
             shouldUpdate = true;
           } else if (localDataIsStale && firestoreIsFresh) {
             // Local data is from yesterday AND Firestore has fresh data from today - always sync
@@ -398,30 +400,43 @@ const Dashboard = () => {
             console.log("Allowing Firestore update: Local data is stale (from yesterday), syncing from other devices");
             shouldUpdate = true;
           } else if (hasRecentLocalChanges) {
-            // Compare each room - protect local changes only if we made them recently
-            rooms.forEach(localRoom => {
-              const firestoreRoom = data.rooms.find(fr => String(fr.number) === String(localRoom.number));
-              if (firestoreRoom) {
-                // If local room is non-vacant (user made a change) and Firestore is vacant, it's a conflict
-                const localIsNonVacant = localRoom.status !== "vacant" && localRoom.status !== "long_stay";
-                const firestoreIsVacant = firestoreRoom.status === "vacant";
-                
-                // Also check if local room has cleaned status (green) - this should NEVER be overwritten
-                const localIsCleaned = localRoom.status === "cleaned";
-                
-                // Protect local changes: if we have non-vacant locally and Firestore wants to make it vacant
-                // OR if we have cleaned locally and Firestore wants to change it
-                // BUT: if this is a clear data operation, allow it (unless we just made changes)
-                if (!looksLikeClearData && ((localIsNonVacant && firestoreIsVacant) || (localIsCleaned && firestoreRoom.status !== "cleaned"))) {
-                  conflictingRooms++;
-                }
+            // Don't allow updates that would overwrite recently received cleared data
+            // If we received cleared data within the last 2 minutes, don't allow older data to overwrite it
+            if (lastReceivedClearDataTime.current > 0) {
+              const timeSinceClearData = Date.now() - lastReceivedClearDataTime.current;
+              if (timeSinceClearData < 120000) { // 2 minutes
+                console.log(`Skipping Firestore update: Would overwrite recently received cleared data (${Math.round(timeSinceClearData/1000)}s ago)`);
+                shouldUpdate = false;
+              } else {
+                // Clear data was received more than 2 minutes ago, allow normal updates
+                lastReceivedClearDataTime.current = 0;
               }
-            });
-            
-            // If we have conflicts (local has recent changes that Firestore would overwrite), don't update
-            if (conflictingRooms > 0) {
-              console.log(`Skipping Firestore update: Would overwrite ${conflictingRooms} rooms with recent local changes`);
-              shouldUpdate = false;
+            } else {
+              // Compare each room - protect local changes only if we made them recently
+              rooms.forEach(localRoom => {
+                const firestoreRoom = data.rooms.find(fr => String(fr.number) === String(localRoom.number));
+                if (firestoreRoom) {
+                  // If local room is non-vacant (user made a change) and Firestore is vacant, it's a conflict
+                  const localIsNonVacant = localRoom.status !== "vacant" && localRoom.status !== "long_stay";
+                  const firestoreIsVacant = firestoreRoom.status === "vacant";
+                  
+                  // Also check if local room has cleaned status (green) - this should NEVER be overwritten
+                  const localIsCleaned = localRoom.status === "cleaned";
+                  
+                  // Protect local changes: if we have non-vacant locally and Firestore wants to make it vacant
+                  // OR if we have cleaned locally and Firestore wants to change it
+                  // BUT: if this is a clear data operation, allow it (unless we just made changes)
+                  if (!looksLikeClearData && ((localIsNonVacant && firestoreIsVacant) || (localIsCleaned && firestoreRoom.status !== "cleaned"))) {
+                    conflictingRooms++;
+                  }
+                }
+              });
+              
+              // If we have conflicts (local has recent changes that Firestore would overwrite), don't update
+              if (conflictingRooms > 0) {
+                console.log(`Skipping Firestore update: Would overwrite ${conflictingRooms} rooms with recent local changes`);
+                shouldUpdate = false;
+              }
             }
           } else {
             // No recent local changes - allow updates from other devices
@@ -480,6 +495,16 @@ const Dashboard = () => {
   useEffect(() => {
     if (isUpdatingFromFirestore.current || isInitialLoad.current) {
       return;
+    }
+
+    // Don't write if we just received cleared data (within last 2 minutes)
+    // This prevents old local state from overwriting cleared data
+    if (lastReceivedClearDataTime.current > 0) {
+      const timeSinceClearData = Date.now() - lastReceivedClearDataTime.current;
+      if (timeSinceClearData < 120000) { // 2 minutes
+        console.log(`Skipping Firestore write: Recently received cleared data (${Math.round(timeSinceClearData/1000)}s ago), preventing old data overwrite`);
+        return;
+      }
     }
 
     const roomsCollection = collection(db, "rooms");
