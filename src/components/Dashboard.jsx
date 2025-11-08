@@ -580,7 +580,7 @@ const Dashboard = () => {
     
     // Only allow "FO" to upload PDFs
     if (nickname !== "FO") {
-      alert("เฉพาะผู้ใช้ FO เท่านั้นที่สามารถอัปโหลด PDF ได้");
+      alert("คุณไม่สามารถกดปุ่มนี้");
       return;
     }
     
@@ -795,7 +795,7 @@ const Dashboard = () => {
     }
     // Only allow "FO" to clear data
     if (nickname !== "FO") {
-      alert("เฉพาะผู้ใช้ FO เท่านั้นที่สามารถลบข้อมูลได้");
+      alert("คุณไม่สามารถกดปุ่มนี้");
       return;
     }
     // Show confirmation modal
@@ -805,7 +805,7 @@ const Dashboard = () => {
   const handleClearDataConfirm = async () => {
     // Double-check: Only allow "FO" to clear data
     if (nickname !== "FO") {
-      alert("เฉพาะผู้ใช้ FO เท่านั้นที่สามารถลบข้อมูลได้");
+      alert("คุณไม่สามารถกดปุ่มนี้");
       setShowClearConfirmModal(false);
       return;
     }
