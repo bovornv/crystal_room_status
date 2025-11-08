@@ -531,53 +531,80 @@ const Dashboard = () => {
       // Rooms that should never be updated by PDF uploads (long stay rooms)
       const protectedRooms = ["206", "207", "503", "608", "609"];
 
-      // Update ONLY rooms found in the PDF - preserve all other properties for rooms not in PDF
-      setRooms(prev => {
-        const updatedRooms = prev.map(r => {
-          // Skip protected rooms (long stay) - never update them
-          if (protectedRooms.includes(r.number)) {
+      // Calculate updated rooms for both local state and Firestore
+      const updatedRooms = rooms.map(r => {
+        // Skip protected rooms (long stay) - never update them
+        if (protectedRooms.includes(r.number)) {
+          return r;
+        }
+
+        // Convert to string for comparison to ensure exact match
+        const roomNumStr = String(r.number);
+        const isInPDF = validExistingRooms.some(pdfRoom => String(pdfRoom) === roomNumStr);
+        
+        // Only update if this room number was found in the PDF
+        if (isInPDF) {
+          if (type === "departure") {
+            // Departure report: update to moved_out (takes priority)
+            console.log(`Updating room ${r.number} to moved_out`);
+            return { ...r, status: "moved_out", cleanedToday: false };
+          }
+          if (type === "inhouse") {
+            // In-House report: only update if NOT already moved_out or checked_out (departure takes priority)
+            if (r.status !== "moved_out" && r.status !== "checked_out") {
+              console.log(`Updating room ${r.number} to stay_clean`);
+              return { ...r, status: "stay_clean", cleanedToday: false };
+            }
+            // If already moved_out or checked_out, leave it unchanged (departure priority)
             return r;
           }
-
-          // Convert to string for comparison to ensure exact match
-          const roomNumStr = String(r.number);
-          const isInPDF = validExistingRooms.some(pdfRoom => String(pdfRoom) === roomNumStr);
-          
-          // Only update if this room number was found in the PDF
-          if (isInPDF) {
-            if (type === "departure") {
-              // Departure report: update to moved_out (takes priority)
-              console.log(`Updating room ${r.number} to moved_out`);
-              return { ...r, status: "moved_out", cleanedToday: false };
-            }
-            if (type === "inhouse") {
-              // In-House report: only update if NOT already moved_out or checked_out (departure takes priority)
-              if (r.status !== "moved_out" && r.status !== "checked_out") {
-                console.log(`Updating room ${r.number} to stay_clean`);
-                return { ...r, status: "stay_clean", cleanedToday: false };
-              }
-              // If already moved_out or checked_out, leave it unchanged (departure priority)
-              return r;
-            }
-          }
-          // Return room completely unchanged if not in PDF
-          return r;
-        });
-        console.log("Updated rooms count:", updatedRooms.filter(r => {
-          const roomNumStr = String(r.number);
-          const isInPDF = validExistingRooms.some(pdfRoom => String(pdfRoom) === roomNumStr);
-          return isInPDF && (type === "departure" ? r.status === "moved_out" : r.status === "stay_clean");
-        }).length);
-        return updatedRooms;
+        }
+        // Return room completely unchanged if not in PDF
+        return r;
       });
+
+      console.log("Updated rooms count:", updatedRooms.filter(r => {
+        const roomNumStr = String(r.number);
+        const isInPDF = validExistingRooms.some(pdfRoom => String(pdfRoom) === roomNumStr);
+        return isInPDF && (type === "departure" ? r.status === "moved_out" : r.status === "stay_clean");
+      }).length);
+
+      // Update local state
+      setRooms(updatedRooms);
+
+      // Update report data
+      const updatedDepartureRooms = type === "departure" ? [...new Set(validExistingRooms)] : departureRooms;
+      const updatedInhouseRooms = type === "inhouse" ? [...new Set(validExistingRooms)] : inhouseRooms;
+      
+      if (type === "departure") {
+        setDepartureRooms(updatedDepartureRooms);
+      } else if (type === "inhouse") {
+        setInhouseRooms(updatedInhouseRooms);
+      }
+
+      // Explicitly write to Firestore to ensure sync across all devices
+      try {
+        const roomsCollection = collection(db, "rooms");
+        const roomsDoc = doc(roomsCollection, "allRooms");
+        
+        await setDoc(roomsDoc, {
+          rooms: updatedRooms,
+          departureRooms: updatedDepartureRooms,
+          inhouseRooms: updatedInhouseRooms,
+          lastUpdated: new Date().toISOString()
+        }, { merge: true });
+        
+        console.log(`✅ PDF upload synced to Firestore - ${validExistingRooms.length} rooms updated`);
+      } catch (error) {
+        console.error("Error syncing PDF upload to Firestore:", error);
+      }
 
       // Show success toast with count
       const statusText = type === "departure" ? "ย้ายออก" : "พักต่อ";
       alert(`${validExistingRooms.length} ห้องถูกอัปเดตเป็นสถานะ ${statusText}`);
       
       // Wait longer for Firestore to sync and prevent listener from overwriting
-      // The debounced write takes 500ms, plus network latency, so we need more time
-      // Keep the flag for 15 seconds, and timestamp guard for 60 seconds total
+      // The explicit write is done, but keep flag for safety
       setTimeout(() => {
         isUploadingPDF.current = false;
         console.log("PDF upload flag reset (15s timeout)");
