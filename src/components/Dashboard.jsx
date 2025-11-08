@@ -310,26 +310,35 @@ const Dashboard = () => {
         return;
       }
       
-      // Don't update if we recently uploaded a PDF (within last 60 seconds)
-      const timeSinceLastPDF = Date.now() - lastPDFUploadTime.current;
-      if (timeSinceLastPDF < 60000) {
-        console.log(`Skipping Firestore update: PDF uploaded ${Math.round(timeSinceLastPDF/1000)}s ago`);
-        return;
+      // Only check timestamps if we actually made changes on THIS device
+      // If timestamps are 0, it means we never made changes, so allow all updates from other devices
+      
+      // Don't update if we recently uploaded a PDF on THIS device (within last 60 seconds)
+      if (lastPDFUploadTime.current > 0) {
+        const timeSinceLastPDF = Date.now() - lastPDFUploadTime.current;
+        if (timeSinceLastPDF < 60000) {
+          console.log(`Skipping Firestore update: PDF uploaded on this device ${Math.round(timeSinceLastPDF/1000)}s ago`);
+          return;
+        }
       }
       
-      // Don't update if we recently cleared data (within last 60 seconds)
-      const timeSinceLastClear = Date.now() - lastClearDataTime.current;
-      if (timeSinceLastClear < 60000) {
-        console.log(`Skipping Firestore update: Data cleared ${Math.round(timeSinceLastClear/1000)}s ago`);
-        return;
+      // Don't update if we recently cleared data on THIS device (within last 60 seconds)
+      if (lastClearDataTime.current > 0) {
+        const timeSinceLastClear = Date.now() - lastClearDataTime.current;
+        if (timeSinceLastClear < 60000) {
+          console.log(`Skipping Firestore update: Data cleared on this device ${Math.round(timeSinceLastClear/1000)}s ago`);
+          return;
+        }
       }
       
-      // Don't update if we recently made manual edits (within last 5 minutes)
+      // Don't update if we recently made manual edits on THIS device (within last 5 minutes)
       // Manual edits should persist for the whole day, so we protect them longer
-      const timeSinceLastManualEdit = Date.now() - lastManualEditTime.current;
-      if (timeSinceLastManualEdit < 300000) { // 5 minutes = 300000ms
-        console.log(`Skipping Firestore update: Manual edit made ${Math.round(timeSinceLastManualEdit/1000)}s ago`);
-        return;
+      if (lastManualEditTime.current > 0) {
+        const timeSinceLastManualEdit = Date.now() - lastManualEditTime.current;
+        if (timeSinceLastManualEdit < 300000) { // 5 minutes = 300000ms
+          console.log(`Skipping Firestore update: Manual edit made on this device ${Math.round(timeSinceLastManualEdit/1000)}s ago`);
+          return;
+        }
       }
       
       if (snapshot.exists()) {
@@ -341,8 +350,9 @@ const Dashboard = () => {
           let conflictingRooms = 0;
           
           // Only protect if we recently made changes on THIS device
-          // If we haven't made changes recently, allow updates from other devices
-          const hasRecentLocalChanges = timeSinceLastPDF < 120000 || timeSinceLastManualEdit < 300000;
+          // If we haven't made changes recently (or never made changes), allow updates from other devices
+          const hasRecentLocalChanges = (lastPDFUploadTime.current > 0 && (Date.now() - lastPDFUploadTime.current) < 120000) ||
+                                       (lastManualEditTime.current > 0 && (Date.now() - lastManualEditTime.current) < 300000);
           
           if (hasRecentLocalChanges) {
             // Compare each room - protect local changes only if we made them recently
@@ -371,7 +381,9 @@ const Dashboard = () => {
             }
           } else {
             // No recent local changes - allow updates from other devices
-            console.log("Allowing Firestore update: No recent local changes, syncing from other devices");
+            console.log("Allowing Firestore update: No recent local changes on this device, syncing from other devices");
+            console.log(`Firestore has ${data.rooms.filter(r => r.status !== "vacant" && r.status !== "long_stay").length} non-vacant rooms`);
+            console.log(`Local has ${rooms.filter(r => r.status !== "vacant" && r.status !== "long_stay").length} non-vacant rooms`);
           }
           
           if (shouldUpdate) {
@@ -382,7 +394,9 @@ const Dashboard = () => {
             if (data.inhouseRooms) setInhouseRooms(data.inhouseRooms);
             isUpdatingFromFirestore.current = false;
             isInitialLoad.current = false;
-            console.log("Firestore update applied: Synced from other device");
+            console.log("✅ Firestore update applied: Synced from other device");
+          } else {
+            console.log("❌ Firestore update blocked: Local changes protected");
           }
         }
       } else {
