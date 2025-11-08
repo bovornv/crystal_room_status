@@ -319,7 +319,7 @@ const Dashboard = () => {
       if (snapshot.exists()) {
         const data = snapshot.data();
         if (data.rooms && Array.isArray(data.rooms)) {
-          // Check if this is clear data BEFORE other checks - clear data should always sync
+          // Check if this is clear data or recent PDF upload BEFORE other checks - these should always sync
           const firestoreNonVacantCount = data.rooms.filter(r => r.status !== "vacant" && r.status !== "long_stay").length;
           const firestoreDepartureEmpty = !data.departureRooms || data.departureRooms.length === 0;
           const firestoreInhouseEmpty = !data.inhouseRooms || data.inhouseRooms.length === 0;
@@ -328,8 +328,23 @@ const Dashboard = () => {
           const vacantPercentage = totalRooms > 0 ? (vacantRooms / totalRooms) * 100 : 0;
           const looksLikeClearData = (firestoreNonVacantCount <= 5 || vacantPercentage > 90) && firestoreDepartureEmpty && firestoreInhouseEmpty;
           
-          // If this is clear data, skip all protection checks and always sync
-          if (!looksLikeClearData) {
+          // Check if Firestore has recent PDF upload data (updated within last 2 minutes with report data)
+          // Calculate this early so we can use it in both protection checks and sync logic
+          let firestoreHasRecentPDFUpload = false;
+          if (data.lastUpdated) {
+            try {
+              const firestoreUpdateTime = new Date(data.lastUpdated).getTime();
+              const timeSinceUpdate = Date.now() - firestoreUpdateTime;
+              const hasDepartureRooms = data.departureRooms && data.departureRooms.length > 0;
+              const hasInhouseRooms = data.inhouseRooms && data.inhouseRooms.length > 0;
+              firestoreHasRecentPDFUpload = timeSinceUpdate < 120000 && (hasDepartureRooms || hasInhouseRooms);
+            } catch (e) {
+              // Ignore parsing errors
+            }
+          }
+          
+          // If this is clear data or recent PDF upload, skip all protection checks and always sync
+          if (!looksLikeClearData && !firestoreHasRecentPDFUpload) {
             // Only apply protection checks if this is NOT clear data
             // Don't update if we recently uploaded a PDF on THIS device TODAY (within last 60 seconds)
             if (lastPDFUploadTime.current > 0 && lastPDFUploadTime.current >= todayStart) {
@@ -359,7 +374,12 @@ const Dashboard = () => {
               }
             }
           } else {
-            console.log("Clear data detected - bypassing all protection checks to ensure sync");
+            if (looksLikeClearData) {
+              console.log("Clear data detected - bypassing all protection checks to ensure sync");
+            }
+            if (firestoreHasRecentPDFUpload) {
+              console.log("Recent PDF upload detected - bypassing all protection checks to ensure sync");
+            }
           }
           // Smart comparison: only protect local changes, but allow updates from other devices
           // Check room-by-room to see if we should protect local changes
@@ -379,6 +399,7 @@ const Dashboard = () => {
           
           // Also check if Firestore has fresh data (lastUpdated from today)
           // If Firestore was updated today and local data is stale, always sync
+          // firestoreHasRecentPDFUpload is already calculated above
           let firestoreIsFresh = false;
           if (data.lastUpdated) {
             try {
@@ -403,6 +424,13 @@ const Dashboard = () => {
             console.log(`   Local: ${rooms.filter(r => r.status === "vacant").length}/${rooms.length} vacant`);
             console.log(`   Departure rooms empty: ${firestoreDepartureEmpty}, Inhouse rooms empty: ${firestoreInhouseEmpty}`);
             lastReceivedClearDataTime.current = Date.now(); // Track when we received cleared data
+            shouldUpdate = true; // Force update regardless of conflicts
+          } else if (firestoreHasRecentPDFUpload) {
+            // Firestore has recent PDF upload data from another device - always sync
+            // This ensures PDF uploads sync across all devices immediately
+            console.log("Allowing Firestore update: Recent PDF upload detected from another device - syncing PDF data");
+            console.log(`   Firestore lastUpdated: ${data.lastUpdated}`);
+            console.log(`   Departure rooms: ${data.departureRooms?.length || 0}, Inhouse rooms: ${data.inhouseRooms?.length || 0}`);
             shouldUpdate = true; // Force update regardless of conflicts
           } else if (localDataIsStale && firestoreIsFresh) {
             // Local data is from yesterday AND Firestore has fresh data from today - always sync
