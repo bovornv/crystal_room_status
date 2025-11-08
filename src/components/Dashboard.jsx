@@ -310,11 +310,13 @@ const Dashboard = () => {
         return;
       }
       
-      // Only check timestamps if we actually made changes on THIS device
-      // If timestamps are 0, it means we never made changes, so allow all updates from other devices
+      // Only check timestamps if we actually made changes on THIS device TODAY
+      // If timestamps are 0 or from yesterday, it means we haven't made changes today, so allow all updates
+      const today = new Date();
+      const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
       
-      // Don't update if we recently uploaded a PDF on THIS device (within last 60 seconds)
-      if (lastPDFUploadTime.current > 0) {
+      // Don't update if we recently uploaded a PDF on THIS device TODAY (within last 60 seconds)
+      if (lastPDFUploadTime.current > 0 && lastPDFUploadTime.current >= todayStart) {
         const timeSinceLastPDF = Date.now() - lastPDFUploadTime.current;
         if (timeSinceLastPDF < 60000) {
           console.log(`Skipping Firestore update: PDF uploaded on this device ${Math.round(timeSinceLastPDF/1000)}s ago`);
@@ -322,8 +324,8 @@ const Dashboard = () => {
         }
       }
       
-      // Don't update if we recently cleared data on THIS device (within last 60 seconds)
-      if (lastClearDataTime.current > 0) {
+      // Don't update if we recently cleared data on THIS device TODAY (within last 60 seconds)
+      if (lastClearDataTime.current > 0 && lastClearDataTime.current >= todayStart) {
         const timeSinceLastClear = Date.now() - lastClearDataTime.current;
         if (timeSinceLastClear < 60000) {
           console.log(`Skipping Firestore update: Data cleared on this device ${Math.round(timeSinceLastClear/1000)}s ago`);
@@ -331,9 +333,9 @@ const Dashboard = () => {
         }
       }
       
-      // Don't update if we recently made manual edits on THIS device (within last 5 minutes)
+      // Don't update if we recently made manual edits on THIS device TODAY (within last 5 minutes)
       // Manual edits should persist for the whole day, so we protect them longer
-      if (lastManualEditTime.current > 0) {
+      if (lastManualEditTime.current > 0 && lastManualEditTime.current >= todayStart) {
         const timeSinceLastManualEdit = Date.now() - lastManualEditTime.current;
         if (timeSinceLastManualEdit < 300000) { // 5 minutes = 300000ms
           console.log(`Skipping Firestore update: Manual edit made on this device ${Math.round(timeSinceLastManualEdit/1000)}s ago`);
@@ -358,14 +360,24 @@ const Dashboard = () => {
           
           // Check if local changes are from a different day (stale data)
           // Data should persist for the whole day, but should sync when it's a new day
-          const today = new Date();
-          const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
           // Check if timestamps are from today (fresh) or from yesterday/never (stale)
           const localPDFIsFromToday = lastPDFUploadTime.current > 0 && lastPDFUploadTime.current >= todayStart;
           const localEditIsFromToday = lastManualEditTime.current > 0 && lastManualEditTime.current >= todayStart;
           // Data is stale if we haven't made any changes today (no timestamps from today)
           // This means either: no changes ever (both 0), or changes from yesterday
           const localDataIsStale = !localPDFIsFromToday && !localEditIsFromToday;
+          
+          // Also check if Firestore has fresh data (lastUpdated from today)
+          // If Firestore was updated today and local data is stale, always sync
+          let firestoreIsFresh = false;
+          if (data.lastUpdated) {
+            try {
+              const firestoreUpdateTime = new Date(data.lastUpdated).getTime();
+              firestoreIsFresh = firestoreUpdateTime >= todayStart;
+            } catch (e) {
+              console.error("Error parsing Firestore lastUpdated:", e);
+            }
+          }
           
           // Only protect if we recently made changes on THIS device TODAY
           // If we haven't made changes recently (or never made changes), allow updates from other devices
@@ -377,9 +389,13 @@ const Dashboard = () => {
           if (looksLikeClearData) {
             console.log("Allowing Firestore update: Clear data operation from another device detected - syncing cleared data");
             shouldUpdate = true;
+          } else if (localDataIsStale && firestoreIsFresh) {
+            // Local data is from yesterday AND Firestore has fresh data from today - always sync
+            console.log("Allowing Firestore update: Local data is stale (from yesterday), Firestore has fresh data (from today) - syncing");
+            shouldUpdate = true;
           } else if (localDataIsStale) {
-            // Local data is from yesterday - always allow updates from Firestore (today's data)
-            console.log("Allowing Firestore update: Local data is stale (from yesterday), syncing today's data from other devices");
+            // Local data is from yesterday - always allow updates from Firestore (even if we can't verify freshness)
+            console.log("Allowing Firestore update: Local data is stale (from yesterday), syncing from other devices");
             shouldUpdate = true;
           } else if (hasRecentLocalChanges) {
             // Compare each room - protect local changes only if we made them recently
@@ -416,15 +432,22 @@ const Dashboard = () => {
           
           if (shouldUpdate) {
             isUpdatingFromFirestore.current = true;
+            const beforeCount = rooms.filter(r => r.status !== "vacant" && r.status !== "long_stay").length;
+            const afterCount = data.rooms.filter(r => r.status !== "vacant" && r.status !== "long_stay").length;
             setRooms(data.rooms);
             // Also sync departure/inhouse rooms if they exist
             if (data.departureRooms) setDepartureRooms(data.departureRooms);
             if (data.inhouseRooms) setInhouseRooms(data.inhouseRooms);
             isUpdatingFromFirestore.current = false;
             isInitialLoad.current = false;
-            console.log("✅ Firestore update applied: Synced from other device");
+            console.log(`✅ Firestore update applied: Synced from other device`);
+            console.log(`   Before: ${beforeCount} non-vacant rooms, After: ${afterCount} non-vacant rooms`);
+            console.log(`   Local data was stale: ${localDataIsStale}, Firestore is fresh: ${firestoreIsFresh}`);
+            console.log(`   Firestore lastUpdated: ${data.lastUpdated || 'N/A'}`);
           } else {
             console.log("❌ Firestore update blocked: Local changes protected");
+            console.log(`   Local data is stale: ${localDataIsStale}, Firestore is fresh: ${firestoreIsFresh}`);
+            console.log(`   Has recent local changes: ${hasRecentLocalChanges}, Conflicting rooms: ${conflictingRooms}`);
           }
         }
       } else {
