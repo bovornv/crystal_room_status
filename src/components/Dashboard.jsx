@@ -316,48 +316,57 @@ const Dashboard = () => {
       const today = new Date();
       const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
       
-      // Don't update if we recently uploaded a PDF on THIS device TODAY (within last 60 seconds)
-      if (lastPDFUploadTime.current > 0 && lastPDFUploadTime.current >= todayStart) {
-        const timeSinceLastPDF = Date.now() - lastPDFUploadTime.current;
-        if (timeSinceLastPDF < 60000) {
-          console.log(`Skipping Firestore update: PDF uploaded on this device ${Math.round(timeSinceLastPDF/1000)}s ago`);
-          return;
-        }
-      }
-      
-      // Don't update if we recently cleared data on THIS device TODAY (within last 60 seconds)
-      if (lastClearDataTime.current > 0 && lastClearDataTime.current >= todayStart) {
-        const timeSinceLastClear = Date.now() - lastClearDataTime.current;
-        if (timeSinceLastClear < 60000) {
-          console.log(`Skipping Firestore update: Data cleared on this device ${Math.round(timeSinceLastClear/1000)}s ago`);
-          return;
-        }
-      }
-      
-      // Don't update if we recently made manual edits on THIS device TODAY (within last 5 minutes)
-      // Manual edits should persist for the whole day, so we protect them longer
-      if (lastManualEditTime.current > 0 && lastManualEditTime.current >= todayStart) {
-        const timeSinceLastManualEdit = Date.now() - lastManualEditTime.current;
-        if (timeSinceLastManualEdit < 300000) { // 5 minutes = 300000ms
-          console.log(`Skipping Firestore update: Manual edit made on this device ${Math.round(timeSinceLastManualEdit/1000)}s ago`);
-          return;
-        }
-      }
-      
       if (snapshot.exists()) {
         const data = snapshot.data();
         if (data.rooms && Array.isArray(data.rooms)) {
+          // Check if this is clear data BEFORE other checks - clear data should always sync
+          const firestoreNonVacantCount = data.rooms.filter(r => r.status !== "vacant" && r.status !== "long_stay").length;
+          const firestoreDepartureEmpty = !data.departureRooms || data.departureRooms.length === 0;
+          const firestoreInhouseEmpty = !data.inhouseRooms || data.inhouseRooms.length === 0;
+          const totalRooms = data.rooms.length;
+          const vacantRooms = data.rooms.filter(r => r.status === "vacant").length;
+          const vacantPercentage = totalRooms > 0 ? (vacantRooms / totalRooms) * 100 : 0;
+          const looksLikeClearData = (firestoreNonVacantCount <= 5 || vacantPercentage > 90) && firestoreDepartureEmpty && firestoreInhouseEmpty;
+          
+          // If this is clear data, skip all protection checks and always sync
+          if (!looksLikeClearData) {
+            // Only apply protection checks if this is NOT clear data
+            // Don't update if we recently uploaded a PDF on THIS device TODAY (within last 60 seconds)
+            if (lastPDFUploadTime.current > 0 && lastPDFUploadTime.current >= todayStart) {
+              const timeSinceLastPDF = Date.now() - lastPDFUploadTime.current;
+              if (timeSinceLastPDF < 60000) {
+                console.log(`Skipping Firestore update: PDF uploaded on this device ${Math.round(timeSinceLastPDF/1000)}s ago`);
+                return;
+              }
+            }
+            
+            // Don't update if we recently cleared data on THIS device TODAY (within last 60 seconds)
+            if (lastClearDataTime.current > 0 && lastClearDataTime.current >= todayStart) {
+              const timeSinceLastClear = Date.now() - lastClearDataTime.current;
+              if (timeSinceLastClear < 60000) {
+                console.log(`Skipping Firestore update: Data cleared on this device ${Math.round(timeSinceLastClear/1000)}s ago`);
+                return;
+              }
+            }
+            
+            // Don't update if we recently made manual edits on THIS device TODAY (within last 5 minutes)
+            // Manual edits should persist for the whole day, so we protect them longer
+            if (lastManualEditTime.current > 0 && lastManualEditTime.current >= todayStart) {
+              const timeSinceLastManualEdit = Date.now() - lastManualEditTime.current;
+              if (timeSinceLastManualEdit < 300000) { // 5 minutes = 300000ms
+                console.log(`Skipping Firestore update: Manual edit made on this device ${Math.round(timeSinceLastManualEdit/1000)}s ago`);
+                return;
+              }
+            }
+          } else {
+            console.log("Clear data detected - bypassing all protection checks to ensure sync");
+          }
           // Smart comparison: only protect local changes, but allow updates from other devices
           // Check room-by-room to see if we should protect local changes
           let shouldUpdate = true;
           let conflictingRooms = 0;
           
-          // Check if this looks like a clear data operation from another device
-          // Clear data = Firestore has mostly vacant rooms + empty departure/inhouse arrays
-          const firestoreNonVacantCount = data.rooms.filter(r => r.status !== "vacant" && r.status !== "long_stay").length;
-          const firestoreDepartureEmpty = !data.departureRooms || data.departureRooms.length === 0;
-          const firestoreInhouseEmpty = !data.inhouseRooms || data.inhouseRooms.length === 0;
-          const looksLikeClearData = firestoreNonVacantCount <= 5 && firestoreDepartureEmpty && firestoreInhouseEmpty;
+          // looksLikeClearData is already calculated above
           
           // Check if local changes are from a different day (stale data)
           // Data should persist for the whole day, but should sync when it's a new day
@@ -387,10 +396,14 @@ const Dashboard = () => {
           
           // Always allow clear data operations from other devices
           // Clear data is an intentional operation that should sync across all devices
+          // This takes priority over everything - clear data should always sync
           if (looksLikeClearData) {
             console.log("Allowing Firestore update: Clear data operation from another device detected - syncing cleared data");
+            console.log(`   Firestore: ${vacantRooms}/${totalRooms} vacant (${vacantPercentage.toFixed(1)}%), ${firestoreNonVacantCount} non-vacant`);
+            console.log(`   Local: ${rooms.filter(r => r.status === "vacant").length}/${rooms.length} vacant`);
+            console.log(`   Departure rooms empty: ${firestoreDepartureEmpty}, Inhouse rooms empty: ${firestoreInhouseEmpty}`);
             lastReceivedClearDataTime.current = Date.now(); // Track when we received cleared data
-            shouldUpdate = true;
+            shouldUpdate = true; // Force update regardless of conflicts
           } else if (localDataIsStale && firestoreIsFresh) {
             // Local data is from yesterday AND Firestore has fresh data from today - always sync
             console.log("Allowing Firestore update: Local data is stale (from yesterday), Firestore has fresh data (from today) - syncing");
