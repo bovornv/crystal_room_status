@@ -349,12 +349,24 @@ const Dashboard = () => {
           let shouldUpdate = true;
           let conflictingRooms = 0;
           
+          // Check if this looks like a clear data operation from another device
+          // Clear data = Firestore has mostly vacant rooms + empty departure/inhouse arrays
+          const firestoreNonVacantCount = data.rooms.filter(r => r.status !== "vacant" && r.status !== "long_stay").length;
+          const firestoreDepartureEmpty = !data.departureRooms || data.departureRooms.length === 0;
+          const firestoreInhouseEmpty = !data.inhouseRooms || data.inhouseRooms.length === 0;
+          const looksLikeClearData = firestoreNonVacantCount <= 5 && firestoreDepartureEmpty && firestoreInhouseEmpty;
+          
           // Only protect if we recently made changes on THIS device
           // If we haven't made changes recently (or never made changes), allow updates from other devices
           const hasRecentLocalChanges = (lastPDFUploadTime.current > 0 && (Date.now() - lastPDFUploadTime.current) < 120000) ||
                                        (lastManualEditTime.current > 0 && (Date.now() - lastManualEditTime.current) < 300000);
           
-          if (hasRecentLocalChanges) {
+          // Always allow clear data operations from other devices
+          // Clear data is an intentional operation that should sync across all devices
+          if (looksLikeClearData) {
+            console.log("Allowing Firestore update: Clear data operation from another device detected - syncing cleared data");
+            shouldUpdate = true;
+          } else if (hasRecentLocalChanges) {
             // Compare each room - protect local changes only if we made them recently
             rooms.forEach(localRoom => {
               const firestoreRoom = data.rooms.find(fr => String(fr.number) === String(localRoom.number));
@@ -368,7 +380,8 @@ const Dashboard = () => {
                 
                 // Protect local changes: if we have non-vacant locally and Firestore wants to make it vacant
                 // OR if we have cleaned locally and Firestore wants to change it
-                if ((localIsNonVacant && firestoreIsVacant) || (localIsCleaned && firestoreRoom.status !== "cleaned")) {
+                // BUT: if this is a clear data operation, allow it (unless we just made changes)
+                if (!looksLikeClearData && ((localIsNonVacant && firestoreIsVacant) || (localIsCleaned && firestoreRoom.status !== "cleaned"))) {
                   conflictingRooms++;
                 }
               }
@@ -382,7 +395,7 @@ const Dashboard = () => {
           } else {
             // No recent local changes - allow updates from other devices
             console.log("Allowing Firestore update: No recent local changes on this device, syncing from other devices");
-            console.log(`Firestore has ${data.rooms.filter(r => r.status !== "vacant" && r.status !== "long_stay").length} non-vacant rooms`);
+            console.log(`Firestore has ${firestoreNonVacantCount} non-vacant rooms`);
             console.log(`Local has ${rooms.filter(r => r.status !== "vacant" && r.status !== "long_stay").length} non-vacant rooms`);
           }
           
@@ -717,16 +730,21 @@ const Dashboard = () => {
       const roomsCollection = collection(db, "rooms");
       const roomsDoc = doc(roomsCollection, "allRooms");
       
-      await setDoc(roomsDoc, {
+      const clearDataPayload = {
         rooms: clearedRooms,
         departureRooms: [],
         inhouseRooms: [],
         lastUpdated: new Date().toISOString()
-      }, { merge: true });
+      };
+      
+      await setDoc(roomsDoc, clearDataPayload, { merge: true });
       
       console.log("✅ Clear data synced to Firestore - all devices will see cleared data");
+      console.log(`Cleared ${clearedRooms.length} rooms, ${clearedRooms.filter(r => r.status === "vacant").length} are now vacant`);
+      console.log(`Protected rooms kept: ${clearedRooms.filter(r => protectedRooms.includes(r.number)).map(r => r.number).join(", ")}`);
     } catch (error) {
       console.error("Error syncing clear data to Firestore:", error);
+      alert("เกิดข้อผิดพลาดในการลบข้อมูล: " + error.message);
     }
     
     // Close confirmation modal
