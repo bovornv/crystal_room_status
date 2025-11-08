@@ -647,7 +647,7 @@ const Dashboard = () => {
     setShowClearConfirmModal(true);
   };
 
-  const handleClearDataConfirm = () => {
+  const handleClearDataConfirm = async () => {
     // Set flag to prevent Firestore listener from overwriting during clear operation
     isManualEdit.current = true;
     lastClearDataTime.current = Date.now(); // Record clear time
@@ -656,25 +656,24 @@ const Dashboard = () => {
     const protectedRooms = ["206", "207", "503", "608", "609"];
 
     // Reset all rooms except protected ones
-    setRooms(prev =>
-      prev.map(r => {
-        // Keep protected rooms unchanged
-        if (protectedRooms.includes(r.number)) {
-          return r;
-        }
-        // Reset other rooms: status to vacant, clear editor/selection/cleaning info, keep remark
-        return {
-          ...r,
-          status: "vacant",
-          lastEditor: "",
-          selectedBy: "",
-          cleanedBy: "",
-          cleanedToday: false
-        };
-      })
-    );
+    const clearedRooms = rooms.map(r => {
+      // Keep protected rooms unchanged
+      if (protectedRooms.includes(r.number)) {
+        return r;
+      }
+      // Reset other rooms: status to vacant, clear editor/selection/cleaning info, keep remark
+      return {
+        ...r,
+        status: "vacant",
+        lastEditor: "",
+        selectedBy: "",
+        cleanedBy: "",
+        cleanedToday: false
+      };
+    });
 
-    // Clear report data
+    // Update local state
+    setRooms(clearedRooms);
     setDepartureRooms([]);
     setInhouseRooms([]);
     
@@ -684,6 +683,23 @@ const Dashboard = () => {
       console.log("Cleared localStorage reports");
     } catch (error) {
       console.error("Error clearing localStorage reports:", error);
+    }
+    
+    // Explicitly write to Firestore to ensure sync across all devices
+    try {
+      const roomsCollection = collection(db, "rooms");
+      const roomsDoc = doc(roomsCollection, "allRooms");
+      
+      await setDoc(roomsDoc, {
+        rooms: clearedRooms,
+        departureRooms: [],
+        inhouseRooms: [],
+        lastUpdated: new Date().toISOString()
+      }, { merge: true });
+      
+      console.log("✅ Clear data synced to Firestore - all devices will see cleared data");
+    } catch (error) {
+      console.error("Error syncing clear data to Firestore:", error);
     }
     
     // Close confirmation modal
