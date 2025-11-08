@@ -335,48 +335,43 @@ const Dashboard = () => {
       if (snapshot.exists()) {
         const data = snapshot.data();
         if (data.rooms && Array.isArray(data.rooms)) {
-          // Smart comparison: only update if Firestore has meaningful changes that don't conflict with local state
-          // Check room-by-room to see if we should update
+          // Smart comparison: only protect local changes, but allow updates from other devices
+          // Check room-by-room to see if we should protect local changes
           let shouldUpdate = true;
           let conflictingRooms = 0;
           
-          // Compare each room - if local room has a non-vacant status and Firestore has vacant, don't overwrite
-          // This protects user changes (green, red, yellow rooms) from being reset to white
-          // Room status should persist for the whole day unless explicitly changed by user
-          rooms.forEach(localRoom => {
-            const firestoreRoom = data.rooms.find(fr => String(fr.number) === String(localRoom.number));
-            if (firestoreRoom) {
-              // If local room is non-vacant (user made a change) and Firestore is vacant, it's a conflict
-              const localIsNonVacant = localRoom.status !== "vacant" && localRoom.status !== "long_stay";
-              const firestoreIsVacant = firestoreRoom.status === "vacant";
-              
-              // Also check if local room has cleaned status (green) - this should NEVER be overwritten
-              const localIsCleaned = localRoom.status === "cleaned";
-              
-              if ((localIsNonVacant && firestoreIsVacant) || (localIsCleaned && firestoreRoom.status !== "cleaned")) {
-                conflictingRooms++;
+          // Only protect if we recently made changes on THIS device
+          // If we haven't made changes recently, allow updates from other devices
+          const hasRecentLocalChanges = timeSinceLastPDF < 120000 || timeSinceLastManualEdit < 300000;
+          
+          if (hasRecentLocalChanges) {
+            // Compare each room - protect local changes only if we made them recently
+            rooms.forEach(localRoom => {
+              const firestoreRoom = data.rooms.find(fr => String(fr.number) === String(localRoom.number));
+              if (firestoreRoom) {
+                // If local room is non-vacant (user made a change) and Firestore is vacant, it's a conflict
+                const localIsNonVacant = localRoom.status !== "vacant" && localRoom.status !== "long_stay";
+                const firestoreIsVacant = firestoreRoom.status === "vacant";
+                
+                // Also check if local room has cleaned status (green) - this should NEVER be overwritten
+                const localIsCleaned = localRoom.status === "cleaned";
+                
+                // Protect local changes: if we have non-vacant locally and Firestore wants to make it vacant
+                // OR if we have cleaned locally and Firestore wants to change it
+                if ((localIsNonVacant && firestoreIsVacant) || (localIsCleaned && firestoreRoom.status !== "cleaned")) {
+                  conflictingRooms++;
+                }
               }
+            });
+            
+            // If we have conflicts (local has recent changes that Firestore would overwrite), don't update
+            if (conflictingRooms > 0) {
+              console.log(`Skipping Firestore update: Would overwrite ${conflictingRooms} rooms with recent local changes`);
+              shouldUpdate = false;
             }
-          });
-          
-          // If we have conflicts (local has changes that Firestore would overwrite), don't update
-          // This ensures user changes persist for the whole day
-          if (conflictingRooms > 0) {
-            console.log(`Skipping Firestore update: Would overwrite ${conflictingRooms} rooms with user changes`);
-            shouldUpdate = false;
-          }
-          
-          // Also check if we have more non-vacant rooms locally (indicates recent changes)
-          const localNonVacantCount = rooms.filter(r => 
-            r.status !== "vacant" && r.status !== "long_stay"
-          ).length;
-          const firestoreNonVacantCount = data.rooms.filter(r => 
-            r.status !== "vacant" && r.status !== "long_stay"
-          ).length;
-          
-          if (localNonVacantCount > firestoreNonVacantCount && timeSinceLastPDF < 120000) {
-            console.log(`Skipping Firestore update: Local state has more recent changes (local: ${localNonVacantCount}, firestore: ${firestoreNonVacantCount})`);
-            shouldUpdate = false;
+          } else {
+            // No recent local changes - allow updates from other devices
+            console.log("Allowing Firestore update: No recent local changes, syncing from other devices");
           }
           
           if (shouldUpdate) {
@@ -387,6 +382,7 @@ const Dashboard = () => {
             if (data.inhouseRooms) setInhouseRooms(data.inhouseRooms);
             isUpdatingFromFirestore.current = false;
             isInitialLoad.current = false;
+            console.log("Firestore update applied: Synced from other device");
           }
         }
       } else {
