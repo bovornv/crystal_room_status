@@ -578,6 +578,12 @@ const Dashboard = () => {
       return;
     }
     
+    // Only allow "FO" to upload PDFs
+    if (nickname !== "FO") {
+      alert("เฉพาะผู้ใช้ FO เท่านั้นที่สามารถอัปโหลด PDF ได้");
+      return;
+    }
+    
     // Set flag to prevent Firestore listener from overwriting during upload
     isUploadingPDF.current = true;
     lastPDFUploadTime.current = Date.now(); // Record upload time
@@ -787,11 +793,23 @@ const Dashboard = () => {
       setShowLoginModal(true);
       return;
     }
+    // Only allow "FO" to clear data
+    if (nickname !== "FO") {
+      alert("เฉพาะผู้ใช้ FO เท่านั้นที่สามารถลบข้อมูลได้");
+      return;
+    }
     // Show confirmation modal
     setShowClearConfirmModal(true);
   };
 
   const handleClearDataConfirm = async () => {
+    // Double-check: Only allow "FO" to clear data
+    if (nickname !== "FO") {
+      alert("เฉพาะผู้ใช้ FO เท่านั้นที่สามารถลบข้อมูลได้");
+      setShowClearConfirmModal(false);
+      return;
+    }
+    
     // Set flag to prevent Firestore listener from overwriting during clear operation
     isManualEdit.current = true;
     lastClearDataTime.current = Date.now(); // Record clear time
@@ -969,7 +987,13 @@ const Dashboard = () => {
       <div className="flex justify-start gap-4 mb-3 flex-wrap">
         <button
           onClick={handleClearDataClick}
-          className="cursor-pointer bg-red-600 text-white px-4 py-2 rounded-lg shadow-md hover:bg-red-700 transition-colors inline-block select-none"
+          disabled={!isLoggedIn || nickname !== "FO"}
+          className={`px-4 py-2 rounded-lg shadow-md transition-colors inline-block select-none ${
+            isLoggedIn && nickname === "FO"
+              ? "cursor-pointer bg-red-600 text-white hover:bg-red-700"
+              : "cursor-not-allowed bg-gray-400 text-gray-200 opacity-60"
+          }`}
+          title={!isLoggedIn ? "กรุณาเข้าสู่ระบบ" : nickname !== "FO" ? "เฉพาะผู้ใช้ FO เท่านั้น" : ""}
         >
           ลบข้อมูล
         </button>
@@ -979,11 +1003,17 @@ const Dashboard = () => {
             accept=".pdf"
             id="inhouse-upload"
             className="hidden"
+            disabled={!isLoggedIn || nickname !== "FO"}
             onChange={e => handleUpload("inhouse", e.target.files[0])}
           />
           <label 
             htmlFor="inhouse-upload"
-            className="cursor-pointer bg-[#0F766E] text-white px-4 py-2 rounded-lg shadow-md hover:bg-[#115e59] transition-colors inline-block select-none"
+            className={`px-4 py-2 rounded-lg shadow-md transition-colors inline-block select-none ${
+              isLoggedIn && nickname === "FO"
+                ? "cursor-pointer bg-[#0F766E] text-white hover:bg-[#115e59]"
+                : "cursor-not-allowed bg-gray-400 text-gray-200 opacity-60 pointer-events-none"
+            }`}
+            title={!isLoggedIn ? "กรุณาเข้าสู่ระบบ" : nickname !== "FO" ? "เฉพาะผู้ใช้ FO เท่านั้น" : ""}
           >
             📄 1. Upload In-House PDF
           </label>
@@ -994,11 +1024,17 @@ const Dashboard = () => {
             accept=".pdf"
             id="departure-upload"
             className="hidden"
+            disabled={!isLoggedIn || nickname !== "FO"}
             onChange={e => handleUpload("departure", e.target.files[0])}
           />
           <label 
             htmlFor="departure-upload"
-            className="cursor-pointer bg-[#15803D] text-white px-4 py-2 rounded-lg shadow-md hover:bg-[#166534] transition-colors inline-block select-none"
+            className={`px-4 py-2 rounded-lg shadow-md transition-colors inline-block select-none ${
+              isLoggedIn && nickname === "FO"
+                ? "cursor-pointer bg-[#15803D] text-white hover:bg-[#166534]"
+                : "cursor-not-allowed bg-gray-400 text-gray-200 opacity-60 pointer-events-none"
+            }`}
+            title={!isLoggedIn ? "กรุณาเข้าสู่ระบบ" : nickname !== "FO" ? "เฉพาะผู้ใช้ FO เท่านั้น" : ""}
           >
             📄 2. Upload Expected Departure PDF
           </label>
