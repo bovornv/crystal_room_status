@@ -295,8 +295,15 @@ const Dashboard = () => {
     { number: "111", type: "D5", floor: 1, status: "vacant", maid: "", remark: "", cleanedToday: false },
   ];
 
+  // Helper function to migrate moved_out to checked_out (consolidate statuses)
+  const migrateMovedOutToCheckedOut = (roomsArray) => {
+    return roomsArray.map(r => 
+      r.status === "moved_out" ? { ...r, status: "checked_out" } : r
+    );
+  };
+
   // Rooms state - will be synced with Firestore
-  const [rooms, setRooms] = useState(defaultRooms);
+  const [rooms, setRooms] = useState(migrateMovedOutToCheckedOut(defaultRooms));
 
   // Initialize Firestore sync
   useEffect(() => {
@@ -504,13 +511,19 @@ const Dashboard = () => {
             isUpdatingFromFirestore.current = true;
             const beforeCount = rooms.filter(r => r.status !== "vacant" && r.status !== "long_stay").length;
             const afterCount = data.rooms.filter(r => r.status !== "vacant" && r.status !== "long_stay").length;
+            
             // Merge Firestore data but preserve local cleaned rooms
+            // Also migrate moved_out to checked_out for consistency
             const mergedRooms = data.rooms.map(firestoreRoom => {
               const localRoom = rooms.find(lr => String(lr.number) === String(firestoreRoom.number));
               // If local room is cleaned, keep it cleaned (never overwrite cleaned status)
               if (localRoom && localRoom.status === "cleaned") {
                 console.log(`Preserving cleaned status for room ${localRoom.number} - not overwriting with Firestore data`);
                 return localRoom;
+              }
+              // Migrate moved_out to checked_out for consistency (both mean "ออกแล้ว")
+              if (firestoreRoom.status === "moved_out") {
+                return { ...firestoreRoom, status: "checked_out" };
               }
               return firestoreRoom;
             });
@@ -577,9 +590,11 @@ const Dashboard = () => {
     const roomsDoc = doc(roomsCollection, "allRooms");
 
     // Debounce Firestore writes to avoid too many updates
+    // Migrate moved_out to checked_out before writing to Firestore
+    const migratedRooms = migrateMovedOutToCheckedOut(rooms);
     const timeoutId = setTimeout(() => {
       setDoc(roomsDoc, {
-        rooms: rooms,
+        rooms: migratedRooms,
         departureRooms: departureRooms,
         inhouseRooms: inhouseRooms,
         lastUpdated: new Date().toISOString()
@@ -705,12 +720,13 @@ const Dashboard = () => {
           }
           if (type === "inhouse") {
             // In-House report: update to stay_clean (blue) - staying over
-            // Only update if NOT already moved_out or checked_out (already departed takes priority)
-            if (r.status !== "moved_out" && r.status !== "checked_out") {
+            // Only update if NOT already checked_out (already departed takes priority)
+            // Note: moved_out is migrated to checked_out, so we only check checked_out
+            if (r.status !== "checked_out") {
               console.log(`Updating room ${r.number} to stay_clean`);
               return { ...r, status: "stay_clean", cleanedToday: false };
             }
-            // If already moved_out or checked_out, leave it unchanged (already departed priority)
+            // If already checked_out, leave it unchanged (already departed priority)
             return r;
           }
         }
@@ -724,8 +740,9 @@ const Dashboard = () => {
         return isInPDF && (type === "departure" ? r.status === "will_depart_today" : r.status === "stay_clean");
       }).length);
 
-      // Update local state
-      setRooms(updatedRooms);
+      // Migrate moved_out to checked_out before updating local state
+      const migratedUpdatedRooms = migrateMovedOutToCheckedOut(updatedRooms);
+      setRooms(migratedUpdatedRooms);
 
       // Update report data
       const updatedDepartureRooms = type === "departure" ? [...new Set(validExistingRooms)] : departureRooms;
@@ -742,8 +759,10 @@ const Dashboard = () => {
         const roomsCollection = collection(db, "rooms");
         const roomsDoc = doc(roomsCollection, "allRooms");
         
+        // Migrate moved_out to checked_out before writing to Firestore
+        const migratedRoomsForFirestore = migrateMovedOutToCheckedOut(updatedRooms);
         await setDoc(roomsDoc, {
-          rooms: updatedRooms,
+          rooms: migratedRoomsForFirestore,
           departureRooms: updatedDepartureRooms,
           inhouseRooms: updatedInhouseRooms,
           lastUpdated: new Date().toISOString()

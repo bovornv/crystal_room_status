@@ -1,10 +1,21 @@
 import React, { useState, useEffect } from "react";
 
 const RoomCard = ({ room, setRooms, isLoggedIn, onLoginRequired, currentNickname, currentDate, setIsManualEdit }) => {
+  // Helper function to normalize status - migrate moved_out to checked_out
+  // Both mean "ออกแล้ว" (already departed), so we consolidate to checked_out only
+  const normalizeStatusForEdit = (status) => {
+    return status === "moved_out" ? "checked_out" : status;
+  };
+  
+  // Migrate moved_out to checked_out when saving (for consistency)
+  const migrateStatusOnSave = (status) => {
+    return status === "moved_out" ? "checked_out" : status;
+  };
+
   const [remark, setRemark] = useState(room.remark);
   const [remarkOpen, setRemarkOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
-  const [editStatus, setEditStatus] = useState(room.status);
+  const [editStatus, setEditStatus] = useState(normalizeStatusForEdit(room.status));
 
   // Sync state when room prop changes, but only if modal is not open
   useEffect(() => {
@@ -12,7 +23,7 @@ const RoomCard = ({ room, setRooms, isLoggedIn, onLoginRequired, currentNickname
     // Only update editStatus if the edit modal is not open (to prevent resetting user's selection)
     // This prevents Firestore updates from resetting the dropdown while user is selecting
     if (!editOpen) {
-      setEditStatus(room.status);
+      setEditStatus(normalizeStatusForEdit(room.status));
     }
   }, [room.remark, room.status, editOpen]);
 
@@ -122,15 +133,22 @@ const RoomCard = ({ room, setRooms, isLoggedIn, onLoginRequired, currentNickname
       setIsManualEdit(true);
     }
     
-    // Update rooms state
+    // FO user can change status but should not add/overwrite names
+    // FO should preserve existing lastEditor (don't replace other users' names or add "FO")
+    const isFO = currentNickname === "FO";
+    
+    // Update rooms state - migrate moved_out to checked_out if needed
+    const finalStatus = migrateStatusOnSave(editStatus);
     setRooms(prev =>
       prev.map(r => 
         r.number === room.number 
           ? { 
               ...r, 
-              status: editStatus, 
+              status: finalStatus, 
               cleanedToday: wasCleaned ? true : (r.cleanedToday || false),
-              lastEditor: currentNickname || "", // Store nickname of user who edited
+              // FO doesn't add or overwrite names - preserve existing lastEditor
+              // For non-FO users, update lastEditor normally
+              lastEditor: isFO ? (r.lastEditor || "") : (currentNickname || ""),
               cleanedBy: wasCleaned ? (currentNickname || "") : (r.cleanedBy || ""), // Track who cleaned the room
               selectedBy: wasCleaned ? "" : (r.selectedBy || "") // Clear selection when cleaned
             } 
@@ -152,16 +170,21 @@ const RoomCard = ({ room, setRooms, isLoggedIn, onLoginRequired, currentNickname
     }
   };
 
+  // Status options - only one "ออกแล้ว" option (checked_out)
+  // moved_out is NOT included to avoid duplicate
+  // Ordered as requested by user
   const statusOptions = [
     { value: "cleaned", label: "ทำห้องเสร็จแล้ว", color: "bg-green-200" },
     { value: "closed", label: "ปิดห้อง", color: "bg-gray-200" },
     { value: "checked_out", label: "ออกแล้ว", color: "bg-red-300" },
-    { value: "moved_out", label: "ออกแล้ว", color: "bg-red-300" },
-    { value: "will_depart_today", label: "จะออกวันนี้", color: "bg-yellow-200" },
     { value: "vacant", label: "ว่าง", color: "bg-white" },
     { value: "stay_clean", label: "พักต่อ", color: "bg-blue-200" },
+    { value: "will_depart_today", label: "จะออกวันนี้", color: "bg-yellow-200" },
     { value: "long_stay", label: "รายเดือน", color: "bg-gray-500" },
-  ];
+  ].filter((opt, index, self) => 
+    // Remove any duplicates based on label
+    index === self.findIndex(o => o.label === opt.label)
+  );
 
   return (
     <>
@@ -173,7 +196,8 @@ const RoomCard = ({ room, setRooms, isLoggedIn, onLoginRequired, currentNickname
         onClick={() => {
           if (isLoggedIn) {
             // Initialize editStatus with current room status when opening modal
-            setEditStatus(room.status);
+            // Map moved_out to checked_out to avoid duplicate in dropdown
+            setEditStatus(normalizeStatusForEdit(room.status));
             setEditOpen(true);
           } else {
             onLoginRequired();
@@ -196,7 +220,7 @@ const RoomCard = ({ room, setRooms, isLoggedIn, onLoginRequired, currentNickname
         </div>
 
         <div
-          className={`absolute bottom-0.5 right-0.5 w-4 h-3 sm:w-3 sm:h-2.5 rounded-sm cursor-pointer z-10 ${
+          className={`absolute bottom-0.5 right-0.5 w-5 h-5 sm:w-4 sm:h-4 rounded-full cursor-pointer z-10 ${
             room.remark ? "bg-red-600" : "bg-gray-400"
           }`}
           onClick={(e) => {
@@ -215,13 +239,13 @@ const RoomCard = ({ room, setRooms, isLoggedIn, onLoginRequired, currentNickname
       {editOpen && (
         <div 
           className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
-          onClick={(e) => {
-            // Close modal if clicking on backdrop (not on modal content)
-            if (e.target === e.currentTarget) {
-              setEditOpen(false);
-              setEditStatus(room.status);
-            }
-          }}
+            onClick={(e) => {
+              // Close modal if clicking on backdrop (not on modal content)
+              if (e.target === e.currentTarget) {
+                setEditOpen(false);
+                setEditStatus(normalizeStatusForEdit(room.status));
+              }
+            }}
         >
           <div 
             className="bg-white rounded-2xl p-4 w-80 shadow-lg"
@@ -236,10 +260,11 @@ const RoomCard = ({ room, setRooms, isLoggedIn, onLoginRequired, currentNickname
                 สถานะ
               </label>
               <select
-                value={editStatus}
+                value={normalizeStatusForEdit(editStatus)}
                 onChange={e => {
                   const newStatus = e.target.value;
-                  setEditStatus(newStatus);
+                  // Ensure we never set moved_out - always use checked_out instead
+                  setEditStatus(newStatus === "moved_out" ? "checked_out" : newStatus);
                 }}
                 className="w-full border rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#15803D]"
               >
@@ -267,7 +292,7 @@ const RoomCard = ({ room, setRooms, isLoggedIn, onLoginRequired, currentNickname
                   onClick={() => {
                     setEditOpen(false);
                     // Reset to current room status when canceling
-                    setEditStatus(room.status);
+                    setEditStatus(normalizeStatusForEdit(room.status));
                   }}
                   className="px-3 py-1 bg-gray-100 rounded-lg"
                 >
