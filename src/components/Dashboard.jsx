@@ -144,12 +144,12 @@ const Dashboard = () => {
         // Update localStorage with only valid reports
         localStorage.setItem('crystal_reports', JSON.stringify(validReports));
 
-        // Reset room statuses for expired reports (only if they're still in checked_out or stay_clean)
+        // Reset room statuses for expired reports (only if they're still in checked_out, stay_clean, or will_depart_today)
         if (expiredRoomNumbers.size > 0) {
           setRooms(prev =>
             prev.map(r => {
               if (expiredRoomNumbers.has(r.number) && 
-                  (r.status === "checked_out" || r.status === "stay_clean")) {
+                  (r.status === "checked_out" || r.status === "stay_clean" || r.status === "will_depart_today")) {
                 // Reset to vacant if status was set by expired report
                 return { ...r, status: "vacant", cleanedToday: false };
               }
@@ -481,23 +481,48 @@ const Dashboard = () => {
             }
           } else {
             // No recent local changes - allow updates from other devices
-            console.log("Allowing Firestore update: No recent local changes on this device, syncing from other devices");
-            console.log(`Firestore has ${firestoreNonVacantCount} non-vacant rooms`);
-            console.log(`Local has ${rooms.filter(r => r.status !== "vacant" && r.status !== "long_stay").length} non-vacant rooms`);
+            // BUT: Always protect cleaned (green) rooms - they should NEVER be overwritten
+            let hasCleanedRoomsToProtect = false;
+            rooms.forEach(localRoom => {
+              const firestoreRoom = data.rooms.find(fr => String(fr.number) === String(localRoom.number));
+              if (firestoreRoom && localRoom.status === "cleaned" && firestoreRoom.status !== "cleaned") {
+                hasCleanedRoomsToProtect = true;
+              }
+            });
+            
+            if (hasCleanedRoomsToProtect) {
+              console.log("Skipping Firestore update: Would overwrite cleaned (green) rooms - cleaned rooms are protected");
+              shouldUpdate = false;
+            } else {
+              console.log("Allowing Firestore update: No recent local changes on this device, syncing from other devices");
+              console.log(`Firestore has ${firestoreNonVacantCount} non-vacant rooms`);
+              console.log(`Local has ${rooms.filter(r => r.status !== "vacant" && r.status !== "long_stay").length} non-vacant rooms`);
+            }
           }
           
           if (shouldUpdate) {
             isUpdatingFromFirestore.current = true;
             const beforeCount = rooms.filter(r => r.status !== "vacant" && r.status !== "long_stay").length;
             const afterCount = data.rooms.filter(r => r.status !== "vacant" && r.status !== "long_stay").length;
-            setRooms(data.rooms);
+            // Merge Firestore data but preserve local cleaned rooms
+            const mergedRooms = data.rooms.map(firestoreRoom => {
+              const localRoom = rooms.find(lr => String(lr.number) === String(firestoreRoom.number));
+              // If local room is cleaned, keep it cleaned (never overwrite cleaned status)
+              if (localRoom && localRoom.status === "cleaned") {
+                console.log(`Preserving cleaned status for room ${localRoom.number} - not overwriting with Firestore data`);
+                return localRoom;
+              }
+              return firestoreRoom;
+            });
+            
+            setRooms(mergedRooms);
             // Also sync departure/inhouse rooms if they exist
             if (data.departureRooms) setDepartureRooms(data.departureRooms);
             if (data.inhouseRooms) setInhouseRooms(data.inhouseRooms);
             isUpdatingFromFirestore.current = false;
             isInitialLoad.current = false;
-            console.log(`✅ Firestore update applied: Synced from other device`);
-            console.log(`   Before: ${beforeCount} non-vacant rooms, After: ${afterCount} non-vacant rooms`);
+            console.log(`✅ Firestore update applied: Synced from other device (cleaned rooms preserved)`);
+            console.log(`   Before: ${beforeCount} non-vacant rooms, After: ${mergedRooms.filter(r => r.status !== "vacant" && r.status !== "long_stay").length} non-vacant rooms`);
             console.log(`   Local data was stale: ${localDataIsStale}, Firestore is fresh: ${firestoreIsFresh}`);
             console.log(`   Firestore lastUpdated: ${data.lastUpdated || 'N/A'}`);
           } else {
@@ -667,18 +692,25 @@ const Dashboard = () => {
         
         // Only update if this room number was found in the PDF
         if (isInPDF) {
+          // NEVER overwrite cleaned (green) rooms - they take highest priority
+          if (r.status === "cleaned") {
+            console.log(`Skipping room ${r.number} - already cleaned, cannot be overwritten by PDF`);
+            return r;
+          }
+          
           if (type === "departure") {
-            // Departure report: update to moved_out (takes priority)
-            console.log(`Updating room ${r.number} to moved_out`);
-            return { ...r, status: "moved_out", cleanedToday: false };
+            // Departure report: update to will_depart_today (yellow) - will depart today
+            console.log(`Updating room ${r.number} to will_depart_today`);
+            return { ...r, status: "will_depart_today", cleanedToday: false };
           }
           if (type === "inhouse") {
-            // In-House report: only update if NOT already moved_out or checked_out (departure takes priority)
+            // In-House report: update to stay_clean (blue) - staying over
+            // Only update if NOT already moved_out or checked_out (already departed takes priority)
             if (r.status !== "moved_out" && r.status !== "checked_out") {
               console.log(`Updating room ${r.number} to stay_clean`);
               return { ...r, status: "stay_clean", cleanedToday: false };
             }
-            // If already moved_out or checked_out, leave it unchanged (departure priority)
+            // If already moved_out or checked_out, leave it unchanged (already departed priority)
             return r;
           }
         }
@@ -689,7 +721,7 @@ const Dashboard = () => {
       console.log("Updated rooms count:", updatedRooms.filter(r => {
         const roomNumStr = String(r.number);
         const isInPDF = validExistingRooms.some(pdfRoom => String(pdfRoom) === roomNumStr);
-        return isInPDF && (type === "departure" ? r.status === "moved_out" : r.status === "stay_clean");
+        return isInPDF && (type === "departure" ? r.status === "will_depart_today" : r.status === "stay_clean");
       }).length);
 
       // Update local state
@@ -723,7 +755,7 @@ const Dashboard = () => {
       }
 
       // Show success toast with count
-      const statusText = type === "departure" ? "ย้ายออก" : "พักต่อ";
+      const statusText = type === "departure" ? "จะออกวันนี้" : "พักต่อ";
       alert(`${validExistingRooms.length} ห้องถูกอัปเดตเป็นสถานะ ${statusText}`);
       
       // Wait longer for Firestore to sync and prevent listener from overwriting
@@ -814,19 +846,26 @@ const Dashboard = () => {
     isManualEdit.current = true;
     lastClearDataTime.current = Date.now(); // Record clear time
     
-    // Protected rooms that should not be reset
+    // Protected rooms that should not be reset (5 long stay rooms)
     const protectedRooms = ["206", "207", "503", "608", "609"];
 
-    // Reset all rooms except protected ones
+    // Reset only non-white rooms to white (vacant), preserve remarks, skip protected rooms
     const clearedRooms = rooms.map(r => {
       // Keep protected rooms unchanged
       if (protectedRooms.includes(r.number)) {
         return r;
       }
-      // Reset other rooms: status to vacant, clear editor/selection/cleaning info, keep remark
+      // Only reset if room is not already white (vacant)
+      // Preserve remark explicitly - do not delete remark data
+      if (r.status === "vacant") {
+        // Already white, no change needed
+        return r;
+      }
+      // Reset non-white rooms to vacant (white), but preserve remark
       return {
         ...r,
         status: "vacant",
+        remark: r.remark || "", // Explicitly preserve remark - do not delete
         lastEditor: "",
         selectedBy: "",
         cleanedBy: "",

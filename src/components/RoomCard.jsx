@@ -17,9 +17,10 @@ const RoomCard = ({ room, setRooms, isLoggedIn, onLoginRequired, currentNickname
   }, [room.remark, room.status, editOpen]);
 
   const colorMap = {
-    checked_out: "bg-red-200",
-    moved_out: "bg-red-300",
-    stay_clean: "bg-yellow-200",
+    checked_out: "bg-red-300", // ออกแล้ว (already departed)
+    moved_out: "bg-red-300", // ออกแล้ว (already departed)
+    will_depart_today: "bg-yellow-200", // จะออกวันนี้ (will depart today)
+    stay_clean: "bg-blue-200", // พักต่อ (staying over)
     cleaned: "bg-green-200",
     vacant: "bg-white",
     closed: "bg-gray-500 text-white",
@@ -154,10 +155,11 @@ const RoomCard = ({ room, setRooms, isLoggedIn, onLoginRequired, currentNickname
   const statusOptions = [
     { value: "cleaned", label: "ทำห้องเสร็จแล้ว", color: "bg-green-200" },
     { value: "closed", label: "ปิดห้อง", color: "bg-gray-200" },
-    { value: "checked_out", label: "check out แล้ว", color: "bg-red-200" },
-    { value: "moved_out", label: "ย้ายออก", color: "bg-red-300" },
+    { value: "checked_out", label: "ออกแล้ว", color: "bg-red-300" },
+    { value: "moved_out", label: "ออกแล้ว", color: "bg-red-300" },
+    { value: "will_depart_today", label: "จะออกวันนี้", color: "bg-yellow-200" },
     { value: "vacant", label: "ว่าง", color: "bg-white" },
-    { value: "stay_clean", label: "พักต่อ", color: "bg-yellow-200" },
+    { value: "stay_clean", label: "พักต่อ", color: "bg-blue-200" },
     { value: "long_stay", label: "รายเดือน", color: "bg-gray-500" },
   ];
 
@@ -194,7 +196,7 @@ const RoomCard = ({ room, setRooms, isLoggedIn, onLoginRequired, currentNickname
         </div>
 
         <div
-          className={`absolute bottom-0.5 right-0.5 w-2 h-2 rounded-full cursor-pointer z-10 ${
+          className={`absolute bottom-0.5 right-0.5 w-4 h-3 sm:w-3 sm:h-2.5 rounded-sm cursor-pointer z-10 ${
             room.remark ? "bg-red-600" : "bg-gray-400"
           }`}
           onClick={(e) => {
