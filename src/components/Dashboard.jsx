@@ -1212,6 +1212,43 @@ const Dashboard = () => {
           </tbody>
         </table>
       </div>
+
+      {/* Color Legend */}
+      <div className="mt-6 bg-white rounded-2xl p-4 shadow-md max-w-md mx-auto">
+        <h3 className="font-semibold text-center text-[#15803D] mb-3">
+          ความหมายของสีห้อง
+        </h3>
+        <div className="space-y-2 text-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-6 h-6 rounded bg-green-200 flex-shrink-0"></div>
+            <span>ทำห้องเสร็จแล้ว</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-6 h-6 rounded bg-gray-500 flex-shrink-0"></div>
+            <span>ปิดห้อง</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-6 h-6 rounded bg-red-300 flex-shrink-0"></div>
+            <span>ออกแล้ว</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-6 h-6 rounded bg-white border border-gray-300 flex-shrink-0"></div>
+            <span>ว่าง</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-6 h-6 rounded bg-blue-200 flex-shrink-0"></div>
+            <span>พักต่อ</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-6 h-6 rounded bg-yellow-200 flex-shrink-0"></div>
+            <span>จะออกวันนี้</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-6 h-6 rounded bg-gray-200 flex-shrink-0"></div>
+            <span>รายเดือน</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
