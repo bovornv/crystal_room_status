@@ -464,13 +464,22 @@ const Dashboard = () => {
                 lastReceivedClearDataTime.current = 0;
               }
             } else {
+              // Check if we're in business hours (6am - 10pm) - protect manual edits more aggressively
+              const now = new Date();
+              const currentHour = now.getHours();
+              const isBusinessHours = currentHour >= 6 && currentHour < 22; // 6am to 10pm
+              
               // Compare each room - protect rooms that were recently edited manually
               rooms.forEach(localRoom => {
                 const firestoreRoom = data.rooms.find(fr => String(fr.number) === String(localRoom.number));
                 if (firestoreRoom) {
                   // Check if this specific room was recently edited manually
                   const roomEditTime = recentlyEditedRooms.current.get(String(localRoom.number));
-                  const wasRecentlyEdited = roomEditTime && (Date.now() - roomEditTime) < 300000; // 5 minutes
+                  
+                  // During business hours (6am-10pm), protect for longer (12 hours instead of 5 minutes)
+                  // Outside business hours, protect for 5 minutes
+                  const protectionWindow = isBusinessHours ? 43200000 : 300000; // 12 hours vs 5 minutes
+                  const wasRecentlyEdited = roomEditTime && (Date.now() - roomEditTime) < protectionWindow;
                   
                   // If statuses are different and this room was recently edited, protect it
                   const statusChanged = localRoom.status !== firestoreRoom.status;
@@ -478,22 +487,24 @@ const Dashboard = () => {
                   if (statusChanged && wasRecentlyEdited && !looksLikeClearData) {
                     // This room was recently edited manually - protect it from Firestore overwrite
                     conflictingRooms++;
-                    console.log(`   Room ${localRoom.number}: Protected (edited ${Math.round((Date.now() - roomEditTime) / 1000)}s ago)`);
+                    const timeAgo = Math.round((Date.now() - roomEditTime) / 1000);
+                    console.log(`   Room ${localRoom.number}: Protected (edited ${timeAgo}s ago, business hours: ${isBusinessHours})`);
                   }
                 }
               });
               
-              // Clean up old entries from recentlyEditedRooms (older than 5 minutes)
-              const now = Date.now();
+              // Clean up old entries from recentlyEditedRooms
+              // During business hours, keep entries for 12 hours; otherwise 5 minutes
+              const cleanupWindow = isBusinessHours ? 43200000 : 300000;
               for (const [roomNum, editTime] of recentlyEditedRooms.current.entries()) {
-                if (now - editTime > 300000) {
+                if (Date.now() - editTime > cleanupWindow) {
                   recentlyEditedRooms.current.delete(roomNum);
                 }
               }
               
               // If we have conflicts (local has recent changes that Firestore would overwrite), don't update
               if (conflictingRooms > 0) {
-                console.log(`Skipping Firestore update: Would overwrite ${conflictingRooms} rooms with recent local manual changes`);
+                console.log(`Skipping Firestore update: Would overwrite ${conflictingRooms} rooms with recent local manual changes (business hours: ${isBusinessHours})`);
                 shouldUpdate = false;
               }
             }
@@ -721,6 +732,18 @@ const Dashboard = () => {
           // NEVER overwrite cleaned (green) rooms - they take highest priority
           if (r.status === "cleaned") {
             console.log(`Skipping room ${r.number} - already cleaned, cannot be overwritten by PDF`);
+            return r;
+          }
+          
+          // During business hours (6am-10pm), don't overwrite rooms that were recently manually edited
+          const now = new Date();
+          const currentHour = now.getHours();
+          const isBusinessHours = currentHour >= 6 && currentHour < 22; // 6am to 10pm
+          const roomEditTime = recentlyEditedRooms.current.get(String(r.number));
+          const wasRecentlyEdited = roomEditTime && (Date.now() - roomEditTime) < 43200000; // 12 hours during business hours
+          
+          if (isBusinessHours && wasRecentlyEdited) {
+            console.log(`Skipping room ${r.number} - recently manually edited during business hours, cannot be overwritten by PDF`);
             return r;
           }
           

@@ -216,7 +216,7 @@ const RoomCard = ({ room, setRooms, isLoggedIn, onLoginRequired, currentNickname
             )}
           </div>
           {room.maid && (
-            <div className="text-[9px] italic text-[#0B1320] truncate">{room.maid}</div>
+            <div className="text-xs sm:text-[10px] italic text-[#0B1320] truncate">{room.maid}</div>
           )}
         </div>
 
