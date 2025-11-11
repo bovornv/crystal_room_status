@@ -154,6 +154,7 @@ const Dashboard = () => {
   const isUploadingPDF = useRef(false);
   const inhouseFileInputRef = useRef(null); // Ref for inhouse file input
   const departureFileInputRef = useRef(null); // Ref for departure file input
+  const lastFirestoreData = useRef(null); // Track last Firestore data to detect real changes
 
   // Default rooms data (fallback if Firestore is empty)
   const defaultRooms = [
@@ -258,107 +259,177 @@ const Dashboard = () => {
   };
 
   // Rooms state - will be synced with Firestore
-  const [rooms, setRooms] = useState(migrateMovedOutToCheckedOut(defaultRooms));
+  // Load from localStorage first if available, otherwise use defaultRooms
+  const [rooms, setRooms] = useState(() => {
+    try {
+      const saved = localStorage.getItem('crystal_rooms');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return migrateMovedOutToCheckedOut(parsed);
+      }
+    } catch (error) {
+      console.error("Error loading rooms from localStorage:", error);
+    }
+    return migrateMovedOutToCheckedOut(defaultRooms);
+  });
 
-  // Initialize Firestore sync
+  // Initialize Firestore sync - load once on mount, then only sync real changes
   useEffect(() => {
     const roomsCollection = collection(db, "rooms");
     const roomsDoc = doc(roomsCollection, "allRooms");
 
-    // Set up real-time listener
+    // Load from Firestore once on initial mount
+    const loadFromFirestoreOnce = async () => {
+      try {
+        // Check if we have local data from localStorage
+        const hasLocalStorageData = localStorage.getItem('crystal_rooms') !== null;
+        
+        const snapshot = await getDoc(roomsDoc);
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        if (data.rooms && Array.isArray(data.rooms)) {
+            // If we have localStorage data, prefer it and sync to Firestore
+            // Otherwise, use Firestore data
+            if (hasLocalStorageData) {
+              // We have local data, write it to Firestore to sync
+              // But preserve departureRooms and inhouseRooms from Firestore if they exist
+              console.log("✅ Local data exists, syncing to Firestore");
+              setRooms(prevRooms => {
+                const migratedRooms = migrateMovedOutToCheckedOut(prevRooms);
+                lastFirestoreData.current = JSON.stringify(migratedRooms);
+                // Write to Firestore asynchronously, preserving existing departure/inhouse arrays
+                setDoc(roomsDoc, {
+                  rooms: migratedRooms,
+                  // Don't overwrite departureRooms/inhouseRooms if they exist in Firestore
+                  // Use merge: true so existing arrays are preserved
+                  lastUpdated: new Date().toISOString()
+                }, { merge: true }).catch(err => console.error("Error syncing to Firestore:", err));
+                return prevRooms; // Don't change state
+              });
+              // Load departure/inhouse rooms from Firestore if they exist
+              if (data.departureRooms) setDepartureRooms(data.departureRooms);
+              if (data.inhouseRooms) setInhouseRooms(data.inhouseRooms);
+            } else {
+              // No local data, use Firestore
+              const migratedRooms = migrateMovedOutToCheckedOut(data.rooms);
+              setRooms(migratedRooms);
+              lastFirestoreData.current = JSON.stringify(migratedRooms);
+              if (data.departureRooms) setDepartureRooms(data.departureRooms);
+              if (data.inhouseRooms) setInhouseRooms(data.inhouseRooms);
+              console.log("✅ Initial load from Firestore completed");
+            }
+          }
+        } else {
+          // Document doesn't exist, initialize with current rooms state
+          setRooms(prevRooms => {
+            const migratedRooms = migrateMovedOutToCheckedOut(prevRooms);
+            lastFirestoreData.current = JSON.stringify(migratedRooms);
+            // Write to Firestore asynchronously
+            // departureRooms and inhouseRooms will be empty arrays initially
+            setDoc(roomsDoc, {
+              rooms: migratedRooms,
+              departureRooms: [],
+              inhouseRooms: [],
+              lastUpdated: new Date().toISOString()
+            }, { merge: true }).catch(err => console.error("Error initializing Firestore:", err));
+            return prevRooms; // Don't change state
+          });
+          console.log("✅ Initialized Firestore with current rooms");
+        }
+      } catch (error) {
+        console.error("Error loading from Firestore:", error);
+        // Don't reset rooms on error - keep local state
+      }
+      isInitialLoad.current = false;
+    };
+
+    loadFromFirestoreOnce();
+
+    // Set up real-time listener ONLY for changes from other devices
+    // This listener will NOT overwrite local manual edits
     const unsubscribe = onSnapshot(roomsDoc, (snapshot) => {
-      // Don't update from Firestore if we're currently uploading a PDF
-      if (isUploadingPDF.current) {
-        console.log("Skipping Firestore update: PDF upload in progress");
-        return;
+      // Don't update from Firestore if we're currently uploading a PDF or during initial load
+      if (isUploadingPDF.current || isInitialLoad.current) {
+                return;
       }
       
       if (snapshot.exists()) {
         const data = snapshot.data();
         
-        // Skip if this is the initial load and we already have local data
-        if (isInitialLoad.current && rooms.length > 0) {
-          // Check if local data is more recent than Firestore
-          const localHasData = rooms.some(r => r.status !== "vacant" && r.status !== "long_stay");
-          if (localHasData) {
-            console.log("Skipping Firestore update on initial load: Local data exists");
-            isInitialLoad.current = false;
-            return;
-          }
-        }
-        
         if (!isUpdatingFromFirestore.current && data.rooms && Array.isArray(data.rooms)) {
-          // Merge Firestore data but ALWAYS preserve local manual edits
-          // If local room status differs from Firestore, preserve local (it was manually edited)
-          // This prevents Firestore from overwriting manual changes
+          // Check if Firestore data actually changed (compare with last known state)
+          const currentFirestoreData = JSON.stringify(data.rooms);
+          if (currentFirestoreData === lastFirestoreData.current) {
+            // No real change, skip update
+                return;
+              }
+          
+          // Firestore data changed - merge carefully, preserving local manual edits
           isUpdatingFromFirestore.current = true;
           
-          const mergedRooms = data.rooms.map(firestoreRoom => {
-            // Migrate moved_out to checked_out for consistency
-            const migratedRoom = firestoreRoom.status === "moved_out" 
-              ? { ...firestoreRoom, status: "checked_out" }
-              : firestoreRoom;
+          setRooms(prevRooms => {
+            const mergedRooms = data.rooms.map(firestoreRoom => {
+              // Migrate moved_out to checked_out for consistency
+              const migratedRoom = firestoreRoom.status === "moved_out" 
+                ? { ...firestoreRoom, status: "checked_out" }
+                : firestoreRoom;
+              
+              // Find corresponding local room
+              const localRoom = prevRooms.find(lr => String(lr.number) === String(migratedRoom.number));
+              
+              // CRITICAL: If local room status differs from Firestore, preserve local
+              // This means the room was manually edited locally and should NOT be overwritten
+              if (localRoom && localRoom.status !== migratedRoom.status) {
+                console.log(`🔒 Preserving local edit: Room ${localRoom.number} (${localRoom.status}) vs Firestore (${migratedRoom.status})`);
+                return localRoom; // Keep local status
+              }
+              
+              // Statuses match or local room doesn't exist - use Firestore data
+              return migratedRoom;
+            });
             
-            // Find corresponding local room
-            const localRoom = rooms.find(lr => String(lr.number) === String(migratedRoom.number));
-            
-            // If local room exists and status differs from Firestore, preserve local
-            // This means the room was manually edited locally
-            if (localRoom && localRoom.status !== migratedRoom.status) {
-              // Local room was manually edited - preserve local status
-              console.log(`Preserving local edit: Room ${localRoom.number} (${localRoom.status}) vs Firestore (${migratedRoom.status})`);
-              return localRoom;
-            }
-            
-            // Statuses match or local room doesn't exist - use Firestore data
-            return migratedRoom;
+            // Update last known Firestore state
+            lastFirestoreData.current = JSON.stringify(mergedRooms);
+            return mergedRooms;
           });
           
-          setRooms(mergedRooms);
-          // Also sync departure/inhouse rooms if they exist
-          if (data.departureRooms) setDepartureRooms(data.departureRooms);
-          if (data.inhouseRooms) setInhouseRooms(data.inhouseRooms);
-          isUpdatingFromFirestore.current = false;
-          isInitialLoad.current = false;
-          console.log(`✅ Firestore update applied: Preserved local manual edits`);
-        }
-      } else {
-        // Document doesn't exist, initialize with default rooms
-        if (isInitialLoad.current) {
-          setDoc(roomsDoc, {
-            rooms: defaultRooms,
-            departureRooms: [],
-            inhouseRooms: [],
-            lastUpdated: new Date().toISOString()
-          }).catch(error => {
-            console.error("Error initializing Firestore:", error);
-          });
-          isInitialLoad.current = false;
+            // Also sync departure/inhouse rooms if they exist
+            if (data.departureRooms) setDepartureRooms(data.departureRooms);
+            if (data.inhouseRooms) setInhouseRooms(data.inhouseRooms);
+          
+            isUpdatingFromFirestore.current = false;
+          console.log(`✅ Firestore sync: Preserved local manual edits`);
         }
       }
     }, (error) => {
       console.error("Error listening to Firestore:", error);
-      // Fallback to default rooms on error
-      if (isInitialLoad.current) {
-        setRooms(defaultRooms);
-        isInitialLoad.current = false;
-      }
+      // DO NOT reset rooms on error - keep local state intact
     });
 
     return () => unsubscribe();
-  }, []);
+  }, []); // Empty dependency array - only run once on mount
 
   // Sync rooms to Firestore when they change (but not when updating from Firestore)
+  // Also save to localStorage for persistence
   useEffect(() => {
     if (isUpdatingFromFirestore.current || isInitialLoad.current) {
       return;
     }
 
+    // Save to localStorage immediately for local persistence
+    try {
+      localStorage.setItem('crystal_rooms', JSON.stringify(rooms));
+    } catch (error) {
+      console.error("Error saving rooms to localStorage:", error);
+    }
 
+    // Update last known Firestore state
+    lastFirestoreData.current = JSON.stringify(rooms);
+
+    // Debounce Firestore writes to avoid too many updates
     const roomsCollection = collection(db, "rooms");
     const roomsDoc = doc(roomsCollection, "allRooms");
 
-    // Debounce Firestore writes to avoid too many updates
     // Migrate moved_out to checked_out before writing to Firestore
     const migratedRooms = migrateMovedOutToCheckedOut(rooms);
     const timeoutId = setTimeout(() => {
@@ -369,6 +440,7 @@ const Dashboard = () => {
         lastUpdated: new Date().toISOString()
       }, { merge: true }).catch(error => {
         console.error("Error syncing to Firestore:", error);
+        // Don't reset rooms on error - keep local state
       });
     }, 500); // 500ms debounce
 
@@ -443,6 +515,7 @@ const Dashboard = () => {
       // Update only rooms found in PDF - set status based on report type
       // In-House PDF = blue (stay_clean)
       // Expected Departure PDF = yellow (will_depart_today)
+      // Calculate updated rooms first, then update state
       const updatedRooms = rooms.map(r => {
         // Convert to string for comparison
         const roomNumStr = String(r.number);
@@ -465,6 +538,12 @@ const Dashboard = () => {
         return r;
       });
       
+      // Update state with calculated rooms
+      setRooms(updatedRooms);
+      
+      // Update last known Firestore state
+      lastFirestoreData.current = JSON.stringify(updatedRooms);
+      
       // Update tracking arrays
       if (type === "departure") {
         setDepartureRooms([...new Set(validExistingRooms)]);
@@ -478,19 +557,14 @@ const Dashboard = () => {
         return isInPDF && (type === "departure" ? r.status === "will_depart_today" : r.status === "stay_clean");
       }).length);
 
-      // Migrate moved_out to checked_out before updating local state
-      const migratedUpdatedRooms = migrateMovedOutToCheckedOut(updatedRooms);
-      
-      // Count how many rooms actually changed status
-      const changedRooms = migratedUpdatedRooms.filter((r, idx) => {
+      // Count how many rooms actually changed status (before setRooms updates state)
+      const changedRooms = updatedRooms.filter((r) => {
         const originalRoom = rooms.find(or => String(or.number) === String(r.number));
         return originalRoom && originalRoom.status !== r.status;
       });
       
       console.log(`📊 PDF Upload Summary: ${changedRooms.length} rooms changed status`);
       console.log(`   Changed rooms:`, changedRooms.map(r => `${r.number}: ${rooms.find(or => String(or.number) === String(r.number))?.status} → ${r.status}`));
-      
-      setRooms(migratedUpdatedRooms);
 
       // Update tracking arrays (already done above)
       const updatedDepartureRooms = type === "departure" 
@@ -501,7 +575,7 @@ const Dashboard = () => {
         ? [...new Set(validExistingRooms)]
         : inhouseRooms;
 
-      // Explicitly write to Firestore to ensure sync across all devices
+      // Write to Firestore immediately with calculated updated rooms
       try {
         const roomsCollection = collection(db, "rooms");
         const roomsDoc = doc(roomsCollection, "allRooms");
@@ -514,6 +588,9 @@ const Dashboard = () => {
           inhouseRooms: updatedInhouseRooms,
           lastUpdated: new Date().toISOString()
         }, { merge: true });
+        
+        // Update last known Firestore state
+        lastFirestoreData.current = JSON.stringify(migratedRoomsForFirestore);
         
         console.log(`✅ PDF upload synced to Firestore - ${validExistingRooms.length} rooms updated`);
       } catch (error) {
@@ -649,12 +726,16 @@ const Dashboard = () => {
     setDepartureRooms([]);
     setInhouseRooms([]);
     
-    // Clear localStorage reports
+    // Update last known Firestore state
+    lastFirestoreData.current = JSON.stringify(clearedRooms);
+    
+    // Save to localStorage immediately
     try {
+      localStorage.setItem('crystal_rooms', JSON.stringify(clearedRooms));
       localStorage.removeItem('crystal_reports');
-      console.log("Cleared localStorage reports");
+      console.log("Cleared localStorage reports and saved cleared rooms");
     } catch (error) {
-      console.error("Error clearing localStorage reports:", error);
+      console.error("Error updating localStorage:", error);
     }
     
     // Explicitly write to Firestore to ensure sync across all devices
@@ -987,7 +1068,7 @@ const Dashboard = () => {
 
           return (
             <>
-              <span>ห้อง check out: <span className="font-medium">{departureCount}</span></span>
+              <span>ห้องออกวันนี้: <span className="font-medium">{departureCount}</span></span>
               <span>ห้องพักต่อ: <span className="font-medium">{inhouseCount}</span></span>
               <span className="font-semibold">รวม: {total}</span>
             </>
