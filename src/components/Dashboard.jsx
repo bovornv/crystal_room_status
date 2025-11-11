@@ -773,56 +773,64 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* Team Notes Text Box */}
-      <div className="mb-6">
-        <label className="block text-lg font-bold text-[#15803D] mb-2">
-          📝 ข้อความทีม (Team Notes)
-        </label>
-        <textarea
-          value={teamNotes}
-          onChange={(e) => {
-            // Add bullet point if line doesn't start with one
-            const lines = e.target.value.split('\n');
-            const newValue = lines.map(line => {
-              if (line.trim() && !line.trim().startsWith('•')) {
-                return '• ' + line.trim();
+      {/* Team Notes Text Box - Login Required */}
+      {isLoggedIn ? (
+        <div className="mb-6">
+          <label className="block text-lg font-bold text-[#15803D] mb-2">
+            📝 ข้อความทีม (Team Notes)
+          </label>
+          <textarea
+            value={teamNotes}
+            onChange={(e) => {
+              // Add bullet point if line doesn't start with one
+              const lines = e.target.value.split('\n');
+              const newValue = lines.map(line => {
+                if (line.trim() && !line.trim().startsWith('•')) {
+                  return '• ' + line.trim();
+                }
+                return line;
+              }).join('\n');
+              setTeamNotes(newValue);
+            }}
+            onKeyDown={(e) => {
+              // Auto-add bullet on new line
+              if (e.key === 'Enter') {
+                const textarea = e.target;
+                const start = textarea.selectionStart;
+                const end = textarea.selectionEnd;
+                const value = textarea.value;
+                const before = value.substring(0, start);
+                const after = value.substring(end);
+                
+                // Check if current line has bullet
+                const lineStart = before.lastIndexOf('\n') + 1;
+                const currentLine = before.substring(lineStart);
+                
+                // If current line is not empty and doesn't have bullet, add it
+                if (currentLine.trim() && !currentLine.trim().startsWith('•')) {
+                  e.preventDefault();
+                  const newValue = before + '• ' + after;
+                  setTeamNotes(newValue);
+                  setTimeout(() => {
+                    textarea.selectionStart = textarea.selectionEnd = start + 2;
+                  }, 0);
+                }
               }
-              return line;
-            }).join('\n');
-            setTeamNotes(newValue);
-          }}
-          onKeyDown={(e) => {
-            // Auto-add bullet on new line
-            if (e.key === 'Enter') {
-              const textarea = e.target;
-              const start = textarea.selectionStart;
-              const end = textarea.selectionEnd;
-              const value = textarea.value;
-              const before = value.substring(0, start);
-              const after = value.substring(end);
-              
-              // Check if current line has bullet
-              const lineStart = before.lastIndexOf('\n') + 1;
-              const currentLine = before.substring(lineStart);
-              
-              // If current line is not empty and doesn't have bullet, add it
-              if (currentLine.trim() && !currentLine.trim().startsWith('•')) {
-                e.preventDefault();
-                const newValue = before + '• ' + after;
-                setTeamNotes(newValue);
-                setTimeout(() => {
-                  textarea.selectionStart = textarea.selectionEnd = start + 2;
-                }, 0);
-              }
-            }
-          }}
-          placeholder="• ห้อง 401 ต้องเปลี่ยนผ้าปูที่นอน
+            }}
+            placeholder="• ห้อง 401 ต้องเปลี่ยนผ้าปูที่นอน
 • ห้อง 509 เปิดน้ำไม่ออก
 • แม่บ้านยูจะลาพรุ่งนี้"
-          className="w-full min-h-[120px] p-4 text-lg font-bold text-black bg-white border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#15803D] resize-y"
-          style={{ fontSize: '18px', lineHeight: '1.6' }}
-        />
-      </div>
+            className="w-full min-h-[120px] p-4 text-lg font-bold text-black bg-white border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#15803D] resize-y"
+            style={{ fontSize: '18px', lineHeight: '1.6' }}
+          />
+        </div>
+      ) : (
+        <div className="mb-6 p-4 bg-gray-100 border-2 border-gray-300 rounded-lg text-center">
+          <p className="text-gray-600 font-medium">
+            📝 ข้อความทีม (Team Notes) - กรุณาเข้าสู่ระบบเพื่อแก้ไข
+          </p>
+        </div>
+      )}
 
       {/* Upload Buttons - Only visible to FO */}
       {nickname === "FO" && (
