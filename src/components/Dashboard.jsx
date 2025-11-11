@@ -1212,14 +1212,14 @@ const Dashboard = () => {
             }}
           />
           <label 
-            htmlFor="inhouse-upload"
             onClick={(e) => {
               // If disabled, prevent click
               if (!isLoggedIn || nickname !== "FO") {
                 e.preventDefault();
                 return;
               }
-              // Trigger file input click
+              // Trigger file input click programmatically
+              e.preventDefault();
               if (inhouseFileInputRef.current) {
                 inhouseFileInputRef.current.click();
               }
@@ -1250,14 +1250,14 @@ const Dashboard = () => {
             }}
           />
           <label 
-            htmlFor="departure-upload"
             onClick={(e) => {
               // If disabled, prevent click
               if (!isLoggedIn || nickname !== "FO") {
                 e.preventDefault();
                 return;
               }
-              // Trigger file input click
+              // Trigger file input click programmatically
+              e.preventDefault();
               if (departureFileInputRef.current) {
                 departureFileInputRef.current.click();
               }
