@@ -288,17 +288,30 @@ const Dashboard = () => {
         }
         
         if (!isUpdatingFromFirestore.current && data.rooms && Array.isArray(data.rooms)) {
-          // Always sync from Firestore - no protection restrictions
-          // Room status persists until manually changed, FO presses delete, or FO uploads new PDFs
+          // Merge Firestore data but ALWAYS preserve local manual edits
+          // If local room status differs from Firestore, preserve local (it was manually edited)
+          // This prevents Firestore from overwriting manual changes
           isUpdatingFromFirestore.current = true;
           
-          // Merge Firestore data - migrate moved_out to checked_out for consistency
           const mergedRooms = data.rooms.map(firestoreRoom => {
-            // Migrate moved_out to checked_out for consistency (both mean "ออกแล้ว")
-            if (firestoreRoom.status === "moved_out") {
-              return { ...firestoreRoom, status: "checked_out" };
+            // Migrate moved_out to checked_out for consistency
+            const migratedRoom = firestoreRoom.status === "moved_out" 
+              ? { ...firestoreRoom, status: "checked_out" }
+              : firestoreRoom;
+            
+            // Find corresponding local room
+            const localRoom = rooms.find(lr => String(lr.number) === String(migratedRoom.number));
+            
+            // If local room exists and status differs from Firestore, preserve local
+            // This means the room was manually edited locally
+            if (localRoom && localRoom.status !== migratedRoom.status) {
+              // Local room was manually edited - preserve local status
+              console.log(`Preserving local edit: Room ${localRoom.number} (${localRoom.status}) vs Firestore (${migratedRoom.status})`);
+              return localRoom;
             }
-            return firestoreRoom;
+            
+            // Statuses match or local room doesn't exist - use Firestore data
+            return migratedRoom;
           });
           
           setRooms(mergedRooms);
@@ -307,7 +320,7 @@ const Dashboard = () => {
           if (data.inhouseRooms) setInhouseRooms(data.inhouseRooms);
           isUpdatingFromFirestore.current = false;
           isInitialLoad.current = false;
-          console.log(`✅ Firestore update applied: Synced from Firestore`);
+          console.log(`✅ Firestore update applied: Preserved local manual edits`);
         }
       } else {
         // Document doesn't exist, initialize with default rooms
@@ -440,8 +453,8 @@ const Dashboard = () => {
           if (type === "inhouse") {
             // In-House PDF: set to blue (stay_clean)
             console.log(`Updating room ${r.number} to stay_clean (blue)`);
-            return { ...r, status: "stay_clean", cleanedToday: false };
-          }
+              return { ...r, status: "stay_clean", cleanedToday: false };
+            }
           if (type === "departure") {
             // Expected Departure PDF: set to yellow (will_depart_today)
             console.log(`Updating room ${r.number} to will_depart_today (yellow)`);
@@ -615,16 +628,16 @@ const Dashboard = () => {
       // Reset green, red, yellow, or blue to white (vacant)
       if (r.status === "cleaned" || r.status === "checked_out" || 
           r.status === "will_depart_today" || r.status === "stay_clean") {
-        return {
-          ...r,
-          status: "vacant",
+      return {
+        ...r,
+        status: "vacant",
           maid: "", // Clear maid nickname
-          lastEditor: "",
-          selectedBy: "",
-          cleanedBy: "",
+        lastEditor: "",
+        selectedBy: "",
+        cleanedBy: "",
           cleanedToday: false,
           remark: r.remark || "" // Preserve remark - do not delete
-        };
+      };
       }
       
       // Already white or other status - no change needed
@@ -777,7 +790,7 @@ const Dashboard = () => {
       {isLoggedIn ? (
         <div className="mb-6">
           <label className="block text-lg font-bold text-[#15803D] mb-2">
-            📝 ข้อความทีม (Team Notes)
+            📝 ข้อความสำคัญ (วันนี้)
           </label>
           <textarea
             value={teamNotes}
@@ -817,17 +830,20 @@ const Dashboard = () => {
                 }
               }
             }}
-            placeholder="• ห้อง 401 ต้องเปลี่ยนผ้าปูที่นอน
-• ห้อง 509 เปิดน้ำไม่ออก
-• แม่บ้านยูจะลาพรุ่งนี้"
-            className="w-full min-h-[120px] p-4 text-lg font-bold text-black bg-white border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#15803D] resize-y"
-            style={{ fontSize: '18px', lineHeight: '1.6' }}
+            placeholder="ใส่ข้อความสำคัญในนี้"
+            className={`w-full min-h-[120px] p-4 text-lg bg-white border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#15803D] resize-y placeholder:text-gray-400 ${
+              teamNotes.trim() ? 'font-bold text-black' : 'font-normal text-gray-400'
+            }`}
+            style={{ 
+              fontSize: '18px', 
+              lineHeight: '1.6',
+            }}
           />
         </div>
       ) : (
         <div className="mb-6 p-4 bg-gray-100 border-2 border-gray-300 rounded-lg text-center">
           <p className="text-gray-600 font-medium">
-            📝 ข้อความทีม (Team Notes) - กรุณาเข้าสู่ระบบเพื่อแก้ไข
+            📝 ข้อความสำคัญ (วันนี้) - กรุณาเข้าสู่ระบบเพื่อแก้ไข
           </p>
         </div>
       )}
