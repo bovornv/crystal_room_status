@@ -574,12 +574,23 @@ const Dashboard = () => {
               }
               
               // During business hours, preserve rooms that were recently manually edited
+              // Don't allow Firestore to overwrite manual edits (red) with PDF statuses (yellow, blue)
               if (localRoom && isBusinessHours) {
                 const roomEditTime = recentlyEditedRooms.current.get(String(localRoom.number));
                 const protectionWindow = 43200000; // 12 hours during business hours
                 const wasRecentlyEdited = roomEditTime && (Date.now() - roomEditTime) < protectionWindow;
                 
                 if (wasRecentlyEdited && localRoom.status !== firestoreRoom.status) {
+                  // Check if Firestore is trying to overwrite a manual edit (red) with a PDF status (yellow/blue)
+                  const firestoreIsPDFStatus = firestoreRoom.status === "will_depart_today" || firestoreRoom.status === "stay_clean";
+                  const localIsManualEdit = localRoom.status === "checked_out" || localRoom.status === "cleaned";
+                  
+                  // If Firestore has PDF status and local is a manual edit (red), preserve local
+                  if (firestoreIsPDFStatus && localIsManualEdit) {
+                    console.log(`Preserving manual edit for room ${localRoom.number} (${localRoom.status}) - Firestore trying to overwrite with PDF status (${firestoreRoom.status})`);
+                    return localRoom;
+                  }
+                  // Otherwise, preserve any recent manual edit
                   console.log(`Preserving manual edit for room ${localRoom.number} (edited ${Math.round((Date.now() - roomEditTime) / 1000)}s ago) - not overwriting with Firestore data`);
                   return localRoom;
                 }
@@ -778,16 +789,25 @@ const Dashboard = () => {
           }
           
           // During business hours (6am-10pm), don't overwrite rooms that were recently manually edited
+          // BUT: Allow PDF uploads to overwrite if the room status is from a PDF (will_depart_today or stay_clean)
+          // This prevents manual edits from being overwritten, but allows PDF updates
           const now = new Date();
           const currentHour = now.getHours();
           const isBusinessHours = currentHour >= 6 && currentHour < 22; // 6am to 10pm
           const roomEditTime = recentlyEditedRooms.current.get(String(r.number));
           const wasRecentlyEdited = roomEditTime && (Date.now() - roomEditTime) < 43200000; // 12 hours during business hours
           
-          if (isBusinessHours && wasRecentlyEdited) {
+          // Check if current status is from a PDF (will_depart_today or stay_clean)
+          // If so, allow PDF to update it (PDFs can update PDF statuses)
+          const isPDFStatus = r.status === "will_depart_today" || r.status === "stay_clean";
+          
+          if (isBusinessHours && wasRecentlyEdited && !isPDFStatus) {
             console.log(`Skipping room ${r.number} - recently manually edited during business hours, cannot be overwritten by PDF`);
             return r;
           }
+          
+          // If room has PDF status, allow PDF to update it even if recently edited
+          // This allows PDFs to refresh/update their own data
           
           if (type === "departure") {
             // Departure report: update to will_depart_today (yellow) - will depart today
@@ -962,6 +982,10 @@ const Dashboard = () => {
     // Set flag to prevent Firestore listener from overwriting during clear operation
     isManualEdit.current = true;
     lastClearDataTime.current = Date.now(); // Record clear time
+    
+    // Clear recentlyEditedRooms tracking - after delete, allow PDF uploads to work normally
+    recentlyEditedRooms.current.clear();
+    console.log("🧹 Cleared recentlyEditedRooms tracking after delete data");
     
     // Protected rooms (5 long stay rooms) - reset to long_stay status and clear maid nickname
     const protectedRooms = ["206", "207", "503", "608", "609"];
