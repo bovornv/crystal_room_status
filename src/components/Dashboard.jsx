@@ -831,8 +831,10 @@ const Dashboard = () => {
               }
             }}
             placeholder="ใส่ข้อความสำคัญในนี้"
-            className={`w-full min-h-[120px] p-4 text-lg bg-white border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#15803D] resize-y placeholder:text-gray-400 ${
-              teamNotes.trim() ? 'font-bold text-black' : 'font-normal text-gray-400'
+            className={`w-full p-4 text-lg bg-white border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#15803D] resize-y placeholder:text-gray-400 ${
+              teamNotes.trim() 
+                ? 'font-bold text-black min-h-[120px]' 
+                : 'font-normal text-gray-400 h-[60px]'
             }`}
             style={{ 
               fontSize: '18px', 
