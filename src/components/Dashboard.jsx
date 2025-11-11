@@ -200,6 +200,8 @@ const Dashboard = () => {
   const lastManualEditTime = useRef(0); // Track when manual edit was last made
   const lastReceivedClearDataTime = useRef(0); // Track when we last received cleared data from Firestore
   const recentlyEditedRooms = useRef(new Map()); // Track which rooms were recently edited: Map<roomNumber, timestamp>
+  const inhouseFileInputRef = useRef(null); // Ref for inhouse file input
+  const departureFileInputRef = useRef(null); // Ref for departure file input
 
   // Default rooms data (fallback if Firestore is empty)
   const defaultRooms = [
@@ -895,6 +897,13 @@ const Dashboard = () => {
       const statusText = type === "departure" ? "จะออกวันนี้" : "พักต่อ";
       alert(`${validExistingRooms.length} ห้องถูกอัปเดตเป็นสถานะ ${statusText}`);
       
+      // Reset file input so the same file can be uploaded again
+      if (type === "inhouse" && inhouseFileInputRef.current) {
+        inhouseFileInputRef.current.value = "";
+      } else if (type === "departure" && departureFileInputRef.current) {
+        departureFileInputRef.current.value = "";
+      }
+      
       // Wait longer for Firestore to sync and prevent listener from overwriting
       // The explicit write is done, but keep flag for safety
       setTimeout(() => {
@@ -1189,15 +1198,32 @@ const Dashboard = () => {
         </button>
         <div className="relative">
           <input 
+            ref={inhouseFileInputRef}
             type="file" 
             accept=".pdf"
             id="inhouse-upload"
             className="hidden"
             disabled={!isLoggedIn || nickname !== "FO"}
-            onChange={e => handleUpload("inhouse", e.target.files[0])}
+            onChange={e => {
+              const file = e.target.files?.[0];
+              if (file) {
+                handleUpload("inhouse", file);
+              }
+            }}
           />
           <label 
             htmlFor="inhouse-upload"
+            onClick={(e) => {
+              // If disabled, prevent click
+              if (!isLoggedIn || nickname !== "FO") {
+                e.preventDefault();
+                return;
+              }
+              // Trigger file input click
+              if (inhouseFileInputRef.current) {
+                inhouseFileInputRef.current.click();
+              }
+            }}
             className={`px-4 py-2 rounded-lg shadow-md transition-colors inline-block select-none ${
               isLoggedIn && nickname === "FO"
                 ? "cursor-pointer bg-[#0F766E] text-white hover:bg-[#115e59]"
@@ -1210,15 +1236,32 @@ const Dashboard = () => {
         </div>
         <div className="relative">
           <input 
+            ref={departureFileInputRef}
             type="file" 
             accept=".pdf"
             id="departure-upload"
             className="hidden"
             disabled={!isLoggedIn || nickname !== "FO"}
-            onChange={e => handleUpload("departure", e.target.files[0])}
+            onChange={e => {
+              const file = e.target.files?.[0];
+              if (file) {
+                handleUpload("departure", file);
+              }
+            }}
           />
           <label 
             htmlFor="departure-upload"
+            onClick={(e) => {
+              // If disabled, prevent click
+              if (!isLoggedIn || nickname !== "FO") {
+                e.preventDefault();
+                return;
+              }
+              // Trigger file input click
+              if (departureFileInputRef.current) {
+                departureFileInputRef.current.click();
+              }
+            }}
             className={`px-4 py-2 rounded-lg shadow-md transition-colors inline-block select-none ${
               isLoggedIn && nickname === "FO"
                 ? "cursor-pointer bg-[#15803D] text-white hover:bg-[#166534]"
