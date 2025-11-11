@@ -199,6 +199,7 @@ const Dashboard = () => {
   const lastClearDataTime = useRef(0); // Track when data was last cleared
   const lastManualEditTime = useRef(0); // Track when manual edit was last made
   const lastReceivedClearDataTime = useRef(0); // Track when we last received cleared data from Firestore
+  const recentlyEditedRooms = useRef(new Map()); // Track which rooms were recently edited: Map<roomNumber, timestamp>
 
   // Default rooms data (fallback if Firestore is empty)
   const defaultRooms = [
@@ -352,12 +353,15 @@ const Dashboard = () => {
           
           // If this is clear data or recent PDF upload, skip all protection checks and always sync
           if (!looksLikeClearData && !firestoreHasRecentPDFUpload) {
-            // Only apply protection checks if this is NOT clear data
+            // Only apply protection checks if this is NOT clear data or recent PDF upload
             // Don't update if we recently uploaded a PDF on THIS device TODAY (within last 60 seconds)
+            // BUT: if Firestore has recent PDF data, we should sync it (handled above)
             if (lastPDFUploadTime.current > 0 && lastPDFUploadTime.current >= todayStart) {
               const timeSinceLastPDF = Date.now() - lastPDFUploadTime.current;
-              if (timeSinceLastPDF < 60000) {
-                console.log(`Skipping Firestore update: PDF uploaded on this device ${Math.round(timeSinceLastPDF/1000)}s ago`);
+              // Only block if Firestore doesn't have recent PDF data
+              // If Firestore has recent PDF data, we want to sync it even if we just uploaded
+              if (timeSinceLastPDF < 60000 && !firestoreHasRecentPDFUpload) {
+                console.log(`Skipping Firestore update: PDF uploaded on this device ${Math.round(timeSinceLastPDF/1000)}s ago (and Firestore doesn't have recent PDF data)`);
                 return;
               }
             }
@@ -433,9 +437,9 @@ const Dashboard = () => {
             lastReceivedClearDataTime.current = Date.now(); // Track when we received cleared data
             shouldUpdate = true; // Force update regardless of conflicts
           } else if (firestoreHasRecentPDFUpload) {
-            // Firestore has recent PDF upload data from another device - always sync
-            // This ensures PDF uploads sync across all devices immediately
-            console.log("Allowing Firestore update: Recent PDF upload detected from another device - syncing PDF data");
+            // Firestore has recent PDF upload data - always sync (even if from same device)
+            // This ensures PDF uploads sync immediately and show updated data
+            console.log("Allowing Firestore update: Recent PDF upload detected - syncing PDF data");
             console.log(`   Firestore lastUpdated: ${data.lastUpdated}`);
             console.log(`   Departure rooms: ${data.departureRooms?.length || 0}, Inhouse rooms: ${data.inhouseRooms?.length || 0}`);
             shouldUpdate = true; // Force update regardless of conflicts
@@ -460,29 +464,36 @@ const Dashboard = () => {
                 lastReceivedClearDataTime.current = 0;
               }
             } else {
-              // Compare each room - protect local changes only if we made them recently
+              // Compare each room - protect rooms that were recently edited manually
               rooms.forEach(localRoom => {
                 const firestoreRoom = data.rooms.find(fr => String(fr.number) === String(localRoom.number));
                 if (firestoreRoom) {
-                  // If local room is non-vacant (user made a change) and Firestore is vacant, it's a conflict
-                  const localIsNonVacant = localRoom.status !== "vacant" && localRoom.status !== "long_stay";
-                  const firestoreIsVacant = firestoreRoom.status === "vacant";
+                  // Check if this specific room was recently edited manually
+                  const roomEditTime = recentlyEditedRooms.current.get(String(localRoom.number));
+                  const wasRecentlyEdited = roomEditTime && (Date.now() - roomEditTime) < 300000; // 5 minutes
                   
-                  // Also check if local room has cleaned status (green) - this should NEVER be overwritten
-                  const localIsCleaned = localRoom.status === "cleaned";
+                  // If statuses are different and this room was recently edited, protect it
+                  const statusChanged = localRoom.status !== firestoreRoom.status;
                   
-                  // Protect local changes: if we have non-vacant locally and Firestore wants to make it vacant
-                  // OR if we have cleaned locally and Firestore wants to change it
-                  // BUT: if this is a clear data operation, allow it (unless we just made changes)
-                  if (!looksLikeClearData && ((localIsNonVacant && firestoreIsVacant) || (localIsCleaned && firestoreRoom.status !== "cleaned"))) {
+                  if (statusChanged && wasRecentlyEdited && !looksLikeClearData) {
+                    // This room was recently edited manually - protect it from Firestore overwrite
                     conflictingRooms++;
+                    console.log(`   Room ${localRoom.number}: Protected (edited ${Math.round((Date.now() - roomEditTime) / 1000)}s ago)`);
                   }
                 }
               });
               
+              // Clean up old entries from recentlyEditedRooms (older than 5 minutes)
+              const now = Date.now();
+              for (const [roomNum, editTime] of recentlyEditedRooms.current.entries()) {
+                if (now - editTime > 300000) {
+                  recentlyEditedRooms.current.delete(roomNum);
+                }
+              }
+              
               // If we have conflicts (local has recent changes that Firestore would overwrite), don't update
               if (conflictingRooms > 0) {
-                console.log(`Skipping Firestore update: Would overwrite ${conflictingRooms} rooms with recent local changes`);
+                console.log(`Skipping Firestore update: Would overwrite ${conflictingRooms} rooms with recent local manual changes`);
                 shouldUpdate = false;
               }
             }
@@ -715,18 +726,19 @@ const Dashboard = () => {
           
           if (type === "departure") {
             // Departure report: update to will_depart_today (yellow) - will depart today
+            // Departure takes priority over inhouse (stay_clean), so overwrite it
             console.log(`Updating room ${r.number} to will_depart_today`);
             return { ...r, status: "will_depart_today", cleanedToday: false };
           }
           if (type === "inhouse") {
             // In-House report: update to stay_clean (blue) - staying over
-            // Only update if NOT already checked_out (already departed takes priority)
+            // Only update if NOT already checked_out or will_depart_today (departure takes priority)
             // Note: moved_out is migrated to checked_out, so we only check checked_out
-            if (r.status !== "checked_out") {
+            if (r.status !== "checked_out" && r.status !== "will_depart_today") {
               console.log(`Updating room ${r.number} to stay_clean`);
               return { ...r, status: "stay_clean", cleanedToday: false };
             }
-            // If already checked_out, leave it unchanged (already departed priority)
+            // If already checked_out or will_depart_today, leave it unchanged (departure priority)
             return r;
           }
         }
@@ -742,11 +754,30 @@ const Dashboard = () => {
 
       // Migrate moved_out to checked_out before updating local state
       const migratedUpdatedRooms = migrateMovedOutToCheckedOut(updatedRooms);
+      
+      // Count how many rooms actually changed status
+      const changedRooms = migratedUpdatedRooms.filter((r, idx) => {
+        const originalRoom = rooms.find(or => String(or.number) === String(r.number));
+        return originalRoom && originalRoom.status !== r.status;
+      });
+      
+      console.log(`📊 PDF Upload Summary: ${changedRooms.length} rooms changed status`);
+      console.log(`   Changed rooms:`, changedRooms.map(r => `${r.number}: ${rooms.find(or => String(or.number) === String(r.number))?.status} → ${r.status}`));
+      
       setRooms(migratedUpdatedRooms);
 
-      // Update report data
-      const updatedDepartureRooms = type === "departure" ? [...new Set(validExistingRooms)] : departureRooms;
-      const updatedInhouseRooms = type === "inhouse" ? [...new Set(validExistingRooms)] : inhouseRooms;
+      // Update report data - preserve existing data from other PDF type
+      // When uploading departure, keep existing inhouse rooms
+      // When uploading inhouse, keep existing departure rooms
+      const updatedDepartureRooms = type === "departure" 
+        ? [...new Set([...departureRooms, ...validExistingRooms])]  // Add new rooms to existing departure list
+        : departureRooms;  // Keep existing departure rooms when uploading inhouse
+      
+      const updatedInhouseRooms = type === "inhouse" 
+        ? [...new Set([...inhouseRooms, ...validExistingRooms])]  // Add new rooms to existing inhouse list
+        : inhouseRooms;  // Keep existing inhouse rooms when uploading departure
+      
+      console.log(`📋 Report arrays - Departure: ${updatedDepartureRooms.length} rooms, Inhouse: ${updatedInhouseRooms.length} rooms`);
       
       if (type === "departure") {
         setDepartureRooms(updatedDepartureRooms);
@@ -767,6 +798,8 @@ const Dashboard = () => {
           inhouseRooms: updatedInhouseRooms,
           lastUpdated: new Date().toISOString()
         }, { merge: true });
+        
+        console.log(`✅ Firestore write - Preserved ${updatedInhouseRooms.length} inhouse rooms, ${updatedDepartureRooms.length} departure rooms`);
         
         console.log(`✅ PDF upload synced to Firestore - ${validExistingRooms.length} rooms updated`);
       } catch (error) {
@@ -1170,10 +1203,15 @@ const Dashboard = () => {
                     onLoginRequired={() => setShowLoginModal(true)}
                     currentNickname={nickname}
                     currentDate={remarkDateString}
-                    setIsManualEdit={(value) => { 
+                    setIsManualEdit={(value, roomNumber) => { 
                       isManualEdit.current = value;
                       if (value) {
                         lastManualEditTime.current = Date.now();
+                        // Track which specific room was edited
+                        if (roomNumber) {
+                          recentlyEditedRooms.current.set(String(roomNumber), Date.now());
+                          console.log(`📝 Tracked manual edit for room ${roomNumber}`);
+                        }
                       }
                     }}
                   />

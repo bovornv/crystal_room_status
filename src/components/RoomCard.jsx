@@ -129,8 +129,9 @@ const RoomCard = ({ room, setRooms, isLoggedIn, onLoginRequired, currentNickname
     
     // Set flag to prevent Firestore listener from overwriting during manual edit
     // Do this FIRST before any state updates
+    // Pass room number so we can track which specific room was edited
     if (setIsManualEdit) {
-      setIsManualEdit(true);
+      setIsManualEdit(true, room.number);
     }
     
     // FO user can change status but should not add/overwrite names
@@ -209,7 +210,7 @@ const RoomCard = ({ room, setRooms, isLoggedIn, onLoginRequired, currentNickname
             <div className="font-bold text-base leading-tight">{room.number}</div>
             <div className="text-[10px] text-[#63738A] leading-tight">{room.type}</div>
             {(room.selectedBy || room.status === "cleaned") && room.lastEditor && (
-              <div className="text-[9px] text-[#15803D] italic leading-tight mt-0.5">
+              <div className="text-xs sm:text-[10px] text-[#15803D] italic leading-tight mt-0.5">
                 {room.lastEditor}
               </div>
             )}
