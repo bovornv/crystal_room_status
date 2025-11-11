@@ -898,14 +898,24 @@ const Dashboard = () => {
     isManualEdit.current = true;
     lastClearDataTime.current = Date.now(); // Record clear time
     
-    // Protected rooms that should not be reset (5 long stay rooms)
+    // Protected rooms (5 long stay rooms) - reset to long_stay status and clear maid nickname
     const protectedRooms = ["206", "207", "503", "608", "609"];
 
-    // Reset only non-white rooms to white (vacant), preserve remarks, skip protected rooms
+    // Reset only non-white rooms to white (vacant), preserve remarks
+    // For protected long stay rooms, reset to long_stay (light grey) and clear maid nickname
     const clearedRooms = rooms.map(r => {
-      // Keep protected rooms unchanged
+      // Reset protected long stay rooms to long_stay status and clear maid/editor info
       if (protectedRooms.includes(r.number)) {
-        return r;
+        return {
+          ...r,
+          status: "long_stay", // Reset to light grey (long_stay)
+          maid: "", // Clear maid nickname
+          lastEditor: "",
+          selectedBy: "",
+          cleanedBy: "",
+          cleanedToday: false,
+          remark: r.remark || "" // Preserve remark
+        };
       }
       // Only reset if room is not already white (vacant)
       // Preserve remark explicitly - do not delete remark data
