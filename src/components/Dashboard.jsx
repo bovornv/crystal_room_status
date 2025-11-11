@@ -510,17 +510,40 @@ const Dashboard = () => {
             }
           } else {
             // No recent local changes - allow updates from other devices
-            // BUT: Always protect cleaned (green) rooms - they should NEVER be overwritten
+            // BUT: Always protect cleaned (green) rooms and recently edited rooms during business hours
+            const now = new Date();
+            const currentHour = now.getHours();
+            const isBusinessHours = currentHour >= 6 && currentHour < 22; // 6am to 10pm
+            
             let hasCleanedRoomsToProtect = false;
+            let hasRecentlyEditedRoomsToProtect = false;
+            
             rooms.forEach(localRoom => {
               const firestoreRoom = data.rooms.find(fr => String(fr.number) === String(localRoom.number));
+              
+              // Protect cleaned (green) rooms
               if (firestoreRoom && localRoom.status === "cleaned" && firestoreRoom.status !== "cleaned") {
                 hasCleanedRoomsToProtect = true;
+              }
+              
+              // During business hours, protect recently manually edited rooms
+              if (isBusinessHours && firestoreRoom && localRoom.status !== firestoreRoom.status) {
+                const roomEditTime = recentlyEditedRooms.current.get(String(localRoom.number));
+                const protectionWindow = 43200000; // 12 hours during business hours
+                const wasRecentlyEdited = roomEditTime && (Date.now() - roomEditTime) < protectionWindow;
+                
+                if (wasRecentlyEdited) {
+                  hasRecentlyEditedRoomsToProtect = true;
+                  console.log(`   Room ${localRoom.number}: Would be overwritten but protected (edited ${Math.round((Date.now() - roomEditTime) / 1000)}s ago)`);
+                }
               }
             });
             
             if (hasCleanedRoomsToProtect) {
               console.log("Skipping Firestore update: Would overwrite cleaned (green) rooms - cleaned rooms are protected");
+              shouldUpdate = false;
+            } else if (hasRecentlyEditedRoomsToProtect) {
+              console.log("Skipping Firestore update: Would overwrite recently manually edited rooms during business hours");
               shouldUpdate = false;
             } else {
               console.log("Allowing Firestore update: No recent local changes on this device, syncing from other devices");
@@ -534,15 +557,34 @@ const Dashboard = () => {
             const beforeCount = rooms.filter(r => r.status !== "vacant" && r.status !== "long_stay").length;
             const afterCount = data.rooms.filter(r => r.status !== "vacant" && r.status !== "long_stay").length;
             
-            // Merge Firestore data but preserve local cleaned rooms
+            // Check if we're in business hours (6am - 10pm) for protection
+            const now = new Date();
+            const currentHour = now.getHours();
+            const isBusinessHours = currentHour >= 6 && currentHour < 22; // 6am to 10pm
+            
+            // Merge Firestore data but preserve local cleaned rooms and recently edited rooms
             // Also migrate moved_out to checked_out for consistency
             const mergedRooms = data.rooms.map(firestoreRoom => {
               const localRoom = rooms.find(lr => String(lr.number) === String(firestoreRoom.number));
+              
               // If local room is cleaned, keep it cleaned (never overwrite cleaned status)
               if (localRoom && localRoom.status === "cleaned") {
                 console.log(`Preserving cleaned status for room ${localRoom.number} - not overwriting with Firestore data`);
                 return localRoom;
               }
+              
+              // During business hours, preserve rooms that were recently manually edited
+              if (localRoom && isBusinessHours) {
+                const roomEditTime = recentlyEditedRooms.current.get(String(localRoom.number));
+                const protectionWindow = 43200000; // 12 hours during business hours
+                const wasRecentlyEdited = roomEditTime && (Date.now() - roomEditTime) < protectionWindow;
+                
+                if (wasRecentlyEdited && localRoom.status !== firestoreRoom.status) {
+                  console.log(`Preserving manual edit for room ${localRoom.number} (edited ${Math.round((Date.now() - roomEditTime) / 1000)}s ago) - not overwriting with Firestore data`);
+                  return localRoom;
+                }
+              }
+              
               // Migrate moved_out to checked_out for consistency (both mean "ออกแล้ว")
               if (firestoreRoom.status === "moved_out") {
                 return { ...firestoreRoom, status: "checked_out" };
@@ -1239,11 +1281,15 @@ const Dashboard = () => {
                     setIsManualEdit={(value, roomNumber) => { 
                       isManualEdit.current = value;
                       if (value) {
-                        lastManualEditTime.current = Date.now();
-                        // Track which specific room was edited
+                        const editTime = Date.now();
+                        lastManualEditTime.current = editTime;
+                        // Track which specific room was edited - CRITICAL for protection
                         if (roomNumber) {
-                          recentlyEditedRooms.current.set(String(roomNumber), Date.now());
-                          console.log(`📝 Tracked manual edit for room ${roomNumber}`);
+                          recentlyEditedRooms.current.set(String(roomNumber), editTime);
+                          const now = new Date();
+                          const currentHour = now.getHours();
+                          const isBusinessHours = currentHour >= 6 && currentHour < 22;
+                          console.log(`📝 Tracked manual edit for room ${roomNumber} at ${new Date(editTime).toLocaleTimeString()} (business hours: ${isBusinessHours})`);
                         }
                       }
                     }}
