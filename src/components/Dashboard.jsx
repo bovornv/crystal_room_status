@@ -486,11 +486,18 @@ const Dashboard = () => {
                   // If statuses are different and this room was recently edited, protect it
                   const statusChanged = localRoom.status !== firestoreRoom.status;
                   
+                  // Check if Firestore is trying to overwrite a manual edit (red) with PDF status (yellow/blue)
+                  const firestoreIsPDFStatus = firestoreRoom.status === "will_depart_today" || firestoreRoom.status === "stay_clean";
+                  const localIsManualEdit = localRoom.status === "checked_out" || localRoom.status === "cleaned";
+                  
                   if (statusChanged && wasRecentlyEdited && !looksLikeClearData) {
                     // This room was recently edited manually - protect it from Firestore overwrite
                     conflictingRooms++;
                     const timeAgo = Math.round((Date.now() - roomEditTime) / 1000);
-                    console.log(`   Room ${localRoom.number}: Protected (edited ${timeAgo}s ago, business hours: ${isBusinessHours})`);
+                    const conflictType = firestoreIsPDFStatus && localIsManualEdit 
+                      ? `🛡️ Manual edit (${localRoom.status}) vs PDF (${firestoreRoom.status})`
+                      : `edited ${timeAgo}s ago`;
+                    console.log(`   Room ${localRoom.number}: Protected (${conflictType}, business hours: ${isBusinessHours})`);
                   }
                 }
               });
@@ -529,14 +536,22 @@ const Dashboard = () => {
               }
               
               // During business hours, protect recently manually edited rooms
+              // Especially protect manual edits (red) from being overwritten by PDF statuses (yellow/blue)
               if (isBusinessHours && firestoreRoom && localRoom.status !== firestoreRoom.status) {
                 const roomEditTime = recentlyEditedRooms.current.get(String(localRoom.number));
                 const protectionWindow = 43200000; // 12 hours during business hours
                 const wasRecentlyEdited = roomEditTime && (Date.now() - roomEditTime) < protectionWindow;
                 
+                // Check if Firestore is trying to overwrite a manual edit (red) with PDF status (yellow/blue)
+                const firestoreIsPDFStatus = firestoreRoom.status === "will_depart_today" || firestoreRoom.status === "stay_clean";
+                const localIsManualEdit = localRoom.status === "checked_out" || localRoom.status === "cleaned";
+                
                 if (wasRecentlyEdited) {
                   hasRecentlyEditedRoomsToProtect = true;
-                  console.log(`   Room ${localRoom.number}: Would be overwritten but protected (edited ${Math.round((Date.now() - roomEditTime) / 1000)}s ago)`);
+                  const statusInfo = firestoreIsPDFStatus && localIsManualEdit 
+                    ? `🛡️ Manual edit (${localRoom.status}) vs PDF status (${firestoreRoom.status})`
+                    : `edited ${Math.round((Date.now() - roomEditTime) / 1000)}s ago`;
+                  console.log(`   Room ${localRoom.number}: Would be overwritten but protected (${statusInfo})`);
                 }
               }
             });
@@ -582,18 +597,20 @@ const Dashboard = () => {
                 const protectionWindow = 43200000; // 12 hours during business hours
                 const wasRecentlyEdited = roomEditTime && (Date.now() - roomEditTime) < protectionWindow;
                 
+                // ALWAYS preserve if room was recently edited and statuses differ
                 if (wasRecentlyEdited && localRoom.status !== firestoreRoom.status) {
                   // Check if Firestore is trying to overwrite a manual edit (red) with a PDF status (yellow/blue)
                   const firestoreIsPDFStatus = firestoreRoom.status === "will_depart_today" || firestoreRoom.status === "stay_clean";
                   const localIsManualEdit = localRoom.status === "checked_out" || localRoom.status === "cleaned";
                   
-                  // If Firestore has PDF status and local is a manual edit (red), preserve local
+                  // ALWAYS preserve recent manual edits during business hours - no exceptions
+                  // This prevents yellow/blue from overwriting red (manual edits)
                   if (firestoreIsPDFStatus && localIsManualEdit) {
-                    console.log(`Preserving manual edit for room ${localRoom.number} (${localRoom.status}) - Firestore trying to overwrite with PDF status (${firestoreRoom.status})`);
+                    console.log(`🛡️ CRITICAL: Preserving manual edit for room ${localRoom.number} (${localRoom.status}) - Firestore trying to overwrite with PDF status (${firestoreRoom.status})`);
                     return localRoom;
                   }
-                  // Otherwise, preserve any recent manual edit
-                  console.log(`Preserving manual edit for room ${localRoom.number} (edited ${Math.round((Date.now() - roomEditTime) / 1000)}s ago) - not overwriting with Firestore data`);
+                  // Preserve ANY recent manual edit - don't allow Firestore to overwrite
+                  console.log(`🛡️ Preserving manual edit for room ${localRoom.number} (${localRoom.status}) - edited ${Math.round((Date.now() - roomEditTime) / 1000)}s ago - Firestore has ${firestoreRoom.status}`);
                   return localRoom;
                 }
               }
