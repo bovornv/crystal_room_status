@@ -207,7 +207,7 @@ const Dashboard = () => {
   // Default rooms data (fallback if Firestore is empty)
   const defaultRooms = [
     // Floor 6
-    { number: "601", type: "S", floor: 6, status: "vacant", maid: "", remark: "", cleanedToday: false },
+    { number: "601", type: "S", floor: 6, status: "vacant", maid: "", remark: "", cleanedToday: false, border: "black" },
     { number: "602", type: "S", floor: 6, status: "vacant", maid: "", remark: "", cleanedToday: false },
     { number: "603", type: "S", floor: 6, status: "vacant", maid: "", remark: "", cleanedToday: false },
     { number: "604", type: "S", floor: 6, status: "vacant", maid: "", remark: "", cleanedToday: false },
@@ -300,10 +300,16 @@ const Dashboard = () => {
   ];
 
   // Helper function to migrate moved_out to checked_out (consolidate statuses)
+  // Also ensure all rooms have a border field (default to black if missing)
   const migrateMovedOutToCheckedOut = (roomsArray) => {
-    return roomsArray.map(r => 
-      r.status === "moved_out" ? { ...r, status: "checked_out" } : r
-    );
+    return roomsArray.map(r => {
+      const migrated = r.status === "moved_out" ? { ...r, status: "checked_out" } : r;
+      // Ensure border field exists (default to black if missing)
+      if (!migrated.border) {
+        migrated.border = "black";
+      }
+      return migrated;
+    });
   };
 
   // Rooms state - will be synced with Firestore
@@ -544,13 +550,15 @@ const Dashboard = () => {
         if (isInPDF) {
           if (type === "inhouse") {
             // In-House PDF: set to blue (stay_clean)
+            // Preserve border (keep existing or default to black)
             console.log(`Updating room ${r.number} to stay_clean (blue)`);
-              return { ...r, status: "stay_clean", cleanedToday: false };
+              return { ...r, status: "stay_clean", cleanedToday: false, border: r.border || "black" };
             }
           if (type === "departure") {
             // Expected Departure PDF: set to yellow (will_depart_today)
+            // Preserve border (keep existing or default to black)
             console.log(`Updating room ${r.number} to will_depart_today (yellow)`);
-            return { ...r, status: "will_depart_today", cleanedToday: false };
+            return { ...r, status: "will_depart_today", cleanedToday: false, border: r.border || "black" };
           }
         }
         // Return room unchanged if not in PDF
@@ -711,6 +719,7 @@ const Dashboard = () => {
         selectedBy: "",
         cleanedBy: "",
           cleanedToday: false,
+          border: "black", // Set border to black
           remark: r.remark || "" // Preserve remark - do not delete
       };
       }

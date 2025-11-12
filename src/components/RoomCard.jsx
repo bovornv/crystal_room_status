@@ -133,10 +133,14 @@ const RoomCard = ({ room, setRooms, updateRoomImmediately, isLoggedIn, onLoginRe
     // Migrate moved_out to checked_out if needed
     const finalStatus = migrateStatusOnSave(editStatus);
     
+    // Determine border color: red if cleaned (green), black otherwise
+    const borderColor = finalStatus === "cleaned" ? "red" : "black";
+    
     // Prepare room updates
     const roomUpdates = {
       status: finalStatus,
       cleanedToday: wasCleaned ? true : (room.cleanedToday || false),
+      border: borderColor, // Set border based on status
       // FO doesn't add or overwrite names - preserve existing lastEditor
       // For non-FO users, update lastEditor normally
       lastEditor: isFO ? (room.lastEditor || "") : (currentNickname || ""),
@@ -186,7 +190,7 @@ const RoomCard = ({ room, setRooms, updateRoomImmediately, isLoggedIn, onLoginRe
         className={`relative rounded-lg shadow-sm p-1.5 cursor-pointer flex-shrink-0
         ${colorMap[room.status] || "bg-white"}
         ${isSuite ? "w-20" : "w-16"} h-16 flex flex-col justify-between
-        ${room.selectedBy && room.status !== "cleaned" ? "border-2 border-red-600" : "border border-black"}`}
+        ${room.border === "red" ? "border-2 border-red-600" : "border border-black"}`}
         onClick={() => {
           if (isLoggedIn) {
             // Initialize editStatus with current room status when opening modal
