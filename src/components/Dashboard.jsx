@@ -148,8 +148,7 @@ const Dashboard = () => {
   };
   const timeString = formatTime(currentTime);
 
-  // Ref to track if we're updating from Firestore (to prevent infinite loops)
-  const isUpdatingFromFirestore = useRef(false);
+  // Ref to track initial load to prevent double-loading
   const isInitialLoad = useRef(true);
   const isUploadingPDF = useRef(false);
   const inhouseFileInputRef = useRef(null); // Ref for inhouse file input
@@ -186,7 +185,7 @@ const Dashboard = () => {
 
   // Wrapper function for RoomCard to update a single room immediately (for real-time sync)
   const updateRoomImmediately = async (roomNumber, roomUpdates) => {
-    // Calculate updated rooms first
+    // Use functional update to ensure we have the latest state
     setRooms(prevRooms => {
       const updatedRooms = prevRooms.map(r => 
         String(r.number) === String(roomNumber) 
@@ -194,8 +193,8 @@ const Dashboard = () => {
           : r
       );
       
-      // Update Firestore immediately for real-time sync
-      // Firestore update happens asynchronously, so it won't block state update
+      // Update Firestore immediately for real-time sync (no debounce)
+      // Firestore update happens asynchronously, won't block state update
       updateFirestoreImmediately(updatedRooms).catch(err => {
         console.error("Error updating room in Firestore:", err);
       });
@@ -397,25 +396,30 @@ const Dashboard = () => {
     loadFromFirestoreOnce();
 
     // Set up real-time listener for instant updates across all devices
+    // Always accept Firestore updates for real-time sync
     const unsubscribe = onSnapshot(roomsDoc, (snapshot) => {
-      // Don't update from Firestore if we're currently uploading a PDF or during initial load
-      if (isUploadingPDF.current || isInitialLoad.current) {
-                return;
-              }
+      // Skip during initial load to prevent double-loading
+      if (isInitialLoad.current) {
+        return;
+      }
+      
+      // Skip during PDF upload to prevent overwriting bulk updates
+      // PDF uploads write explicitly, so we don't need to sync during upload
+      if (isUploadingPDF.current) {
+        return;
+      }
       
       if (snapshot.exists()) {
         const data = snapshot.data();
         
-        if (!isUpdatingFromFirestore.current && data.rooms && Array.isArray(data.rooms)) {
-          // Firestore data changed - accept it immediately for real-time sync
-          isUpdatingFromFirestore.current = true;
-          
+        if (data.rooms && Array.isArray(data.rooms)) {
+          // Always accept Firestore updates for real-time sync
           const migratedRooms = migrateMovedOutToCheckedOut(data.rooms);
           setRooms(migratedRooms);
           
-            // Also sync departure/inhouse rooms if they exist
-            if (data.departureRooms) setDepartureRooms(data.departureRooms);
-            if (data.inhouseRooms) setInhouseRooms(data.inhouseRooms);
+          // Also sync departure/inhouse rooms if they exist
+          if (data.departureRooms) setDepartureRooms(data.departureRooms);
+          if (data.inhouseRooms) setInhouseRooms(data.inhouseRooms);
           
           // Update localStorage
           try {
@@ -424,7 +428,6 @@ const Dashboard = () => {
             console.error("Error saving to localStorage:", error);
           }
           
-            isUpdatingFromFirestore.current = false;
           console.log(`✅ Real-time sync: Updated from Firestore - ${migratedRooms.length} rooms`);
         }
       }
@@ -436,11 +439,10 @@ const Dashboard = () => {
     return () => unsubscribe();
   }, []); // Empty dependency array - only run once on mount
 
-  // Sync rooms to Firestore when they change (but not when updating from Firestore)
-  // Use debounced writes for bulk changes to avoid excessive Firestore writes
-  // For immediate updates (manual edits), use updateFirestoreImmediately() instead
+  // Remove debounced sync - all updates go through updateFirestoreImmediately() for instant sync
+  // This useEffect only handles localStorage persistence
   useEffect(() => {
-    if (isUpdatingFromFirestore.current || isInitialLoad.current) {
+    if (isInitialLoad.current) {
       return;
     }
 
@@ -450,27 +452,7 @@ const Dashboard = () => {
     } catch (error) {
       console.error("Error saving rooms to localStorage:", error);
     }
-
-    // Debounce Firestore writes for bulk changes (e.g., initial load, multiple room updates)
-    const roomsCollection = collection(db, "rooms");
-    const roomsDoc = doc(roomsCollection, "allRooms");
-
-    // Migrate moved_out to checked_out before writing to Firestore
-    const migratedRooms = migrateMovedOutToCheckedOut(rooms);
-    const timeoutId = setTimeout(() => {
-      setDoc(roomsDoc, {
-        rooms: migratedRooms,
-        departureRooms: departureRooms,
-        inhouseRooms: inhouseRooms,
-        lastUpdated: new Date().toISOString()
-      }, { merge: true }).catch(error => {
-        console.error("Error syncing to Firestore:", error);
-        // Don't reset rooms on error - keep local state
-      });
-    }, 300); // Reduced debounce for faster sync (300ms instead of 500ms)
-
-    return () => clearTimeout(timeoutId);
-  }, [rooms, departureRooms, inhouseRooms]);
+  }, [rooms]);
 
   const handleUpload = async (type, file) => {
     if (!file) {
@@ -627,12 +609,11 @@ const Dashboard = () => {
         departureFileInputRef.current.value = "";
       }
       
-      // Wait longer for Firestore to sync and prevent listener from overwriting
-      // The explicit write is done, but keep flag for safety
+      // Reset flag after Firestore write completes (short delay for safety)
       setTimeout(() => {
         isUploadingPDF.current = false;
-        console.log("PDF upload flag reset (15s timeout)");
-      }, 15000); // 15 seconds to ensure Firestore sync completes before re-enabling listener
+        console.log("PDF upload flag reset");
+      }, 2000); // 2 seconds is enough for Firestore write to complete
     } catch (error) {
       console.error("Error processing PDF:", error);
       alert(`เกิดข้อผิดพลาดในการประมวลผล PDF: ${error.message}`);
@@ -1083,15 +1064,11 @@ const Dashboard = () => {
                   <RoomCard 
                     key={r.number} 
                     room={r} 
-                    setRooms={setRooms}
                     updateRoomImmediately={updateRoomImmediately}
                     isLoggedIn={isLoggedIn}
                     onLoginRequired={() => setShowLoginModal(true)}
                     currentNickname={nickname}
                     currentDate={remarkDateString}
-                    setIsManualEdit={(value, roomNumber) => { 
-                      // No longer needed - protection removed per requirements
-                    }}
                   />
                 ))}
               </div>

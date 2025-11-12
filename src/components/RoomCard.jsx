@@ -1,55 +1,110 @@
 import React, { useState, useEffect } from "react";
 
-const RoomCard = ({ room, setRooms, updateRoomImmediately, isLoggedIn, onLoginRequired, currentNickname, currentDate, setIsManualEdit }) => {
-  // Helper function to normalize status - migrate moved_out to checked_out
-  // Both mean "ออกแล้ว" (already departed), so we consolidate to checked_out only
-  const normalizeStatusForEdit = (status) => {
-    return status === "moved_out" ? "checked_out" : status;
-  };
-  
-  // Migrate moved_out to checked_out when saving (for consistency)
-  const migrateStatusOnSave = (status) => {
-    return status === "moved_out" ? "checked_out" : status;
-  };
-
-  const [remark, setRemark] = useState(room.remark);
+const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, currentNickname, currentDate }) => {
+  const [remark, setRemark] = useState(room.remark || "");
   const [remarkOpen, setRemarkOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
-  const [editStatus, setEditStatus] = useState(normalizeStatusForEdit(room.status));
+  const [editStatus, setEditStatus] = useState(room.status || "vacant");
 
-  // Sync state when room prop changes, but only if modal is not open
+  // Sync state when room prop changes
   useEffect(() => {
-    setRemark(room.remark);
-    // Only update editStatus if the edit modal is not open (to prevent resetting user's selection)
-    // This prevents Firestore updates from resetting the dropdown while user is selecting
+    setRemark(room.remark || "");
     if (!editOpen) {
-      setEditStatus(normalizeStatusForEdit(room.status));
+      setEditStatus(room.status || "vacant");
     }
   }, [room.remark, room.status, editOpen]);
 
   const colorMap = {
-    checked_out: "bg-red-300", // ออกแล้ว (already departed)
-    moved_out: "bg-red-300", // ออกแล้ว (already departed)
-    will_depart_today: "bg-yellow-200", // จะออกวันนี้ (will depart today)
-    stay_clean: "bg-blue-200", // พักต่อ (staying over)
     cleaned: "bg-green-200",
-    vacant: "bg-white",
     closed: "bg-gray-500 text-white",
+    checked_out: "bg-red-300",
+    vacant: "bg-white",
+    stay_clean: "bg-blue-200",
+    will_depart_today: "bg-yellow-200",
     long_stay: "bg-gray-200",
   };
 
-  const isSuite = room.type.toUpperCase().startsWith("S");
+  // Status options with Thai labels only
+  const statusOptions = [
+    { value: "cleaned", label: "ทำห้องเสร็จแล้ว", color: "bg-green-200" },
+    { value: "closed", label: "ปิดห้อง", color: "bg-gray-500" },
+    { value: "checked_out", label: "ออกแล้ว", color: "bg-red-300" },
+    { value: "vacant", label: "ว่าง", color: "bg-white" },
+    { value: "stay_clean", label: "พักต่อ", color: "bg-blue-200" },
+    { value: "will_depart_today", label: "จะออกวันนี้", color: "bg-yellow-200" },
+    { value: "long_stay", label: "รายเดือน", color: "bg-gray-200" },
+  ];
 
-  const saveRemark = () => {
-    // Require login
+  const isSuite = room.type?.toUpperCase().startsWith("S");
+  const borderColor = room.border === "red" ? "border-2 border-red-600" : "border border-black";
+
+  // Handle status change (from buttons in modal)
+  const handleStatusChange = async (newStatus) => {
     if (!isLoggedIn || !currentNickname) {
       onLoginRequired();
       return;
     }
+
+    const wasCleaned = newStatus === "cleaned" && room.status !== "cleaned";
+    const isFO = currentNickname === "FO";
     
-    // Set flag to prevent Firestore listener from overwriting during remark save
-    if (setIsManualEdit) {
-      setIsManualEdit(true);
+    // Determine border color: red if cleaned (green), black otherwise
+    const borderColor = newStatus === "cleaned" ? "red" : "black";
+    
+    const roomUpdates = {
+      status: newStatus,
+      cleanedToday: wasCleaned ? true : (room.cleanedToday || false),
+      border: borderColor,
+      // FO doesn't add or overwrite names - preserve existing lastEditor
+      lastEditor: isFO ? (room.lastEditor || "") : (currentNickname || ""),
+      cleanedBy: wasCleaned ? (currentNickname || "") : (room.cleanedBy || ""),
+      selectedBy: wasCleaned ? "" : (room.selectedBy || "")
+    };
+
+    // Update immediately for real-time sync
+    if (updateRoomImmediately) {
+      await updateRoomImmediately(room.number, roomUpdates);
+    }
+  };
+
+  // Handle "เลือกห้องนี้" button - toggle border red/black
+  const handleSelectRoom = async () => {
+    if (!isLoggedIn || !currentNickname) {
+      onLoginRequired();
+      return;
+    }
+
+    // Toggle border: if currently red, change to black; if black, change to red
+    const newBorder = room.border === "red" ? "black" : "red";
+    
+    const roomUpdates = {
+      selectedBy: currentNickname || "",
+      lastEditor: currentNickname === "FO" ? (room.lastEditor || "") : (currentNickname || ""),
+      border: newBorder
+    };
+
+    // Update immediately for real-time sync
+    if (updateRoomImmediately) {
+      await updateRoomImmediately(room.number, roomUpdates);
+    }
+  };
+
+  // Save status change from modal dropdown (if still using it)
+  const saveEdit = async () => {
+    if (!isLoggedIn || !currentNickname) {
+      onLoginRequired();
+      return;
+    }
+
+    await handleStatusChange(editStatus);
+    setEditOpen(false);
+  };
+
+  // Save remark
+  const saveRemark = async () => {
+    if (!isLoggedIn || !currentNickname) {
+      onLoginRequired();
+      return;
     }
     
     let finalRemark = remark.trim();
@@ -61,200 +116,33 @@ const RoomCard = ({ room, setRooms, updateRoomImmediately, isLoggedIn, onLoginRe
       // Append new report info
       finalRemark += ` (รายงานโดย ${currentNickname} ${currentDate})`;
     }
-    // If remark is empty, keep it empty (don't add anything)
     
-    console.log(`Saving remark for room ${room.number}: ${finalRemark.substring(0, 50)}...`);
-    
-    // Update room immediately for real-time sync
+    // Update immediately for real-time sync
     if (updateRoomImmediately) {
-      updateRoomImmediately(room.number, { remark: finalRemark });
-    } else {
-      // Fallback to old method if updateRoomImmediately is not available
-      setRooms(prev =>
-        prev.map(r => r.number === room.number ? { ...r, remark: finalRemark } : r)
-      );
+      await updateRoomImmediately(room.number, { remark: finalRemark });
     }
     
-    // Close modal after a brief delay to ensure state update is processed
-    setTimeout(() => {
-      setRemarkOpen(false);
-    }, 100);
+    setRemarkOpen(false);
   };
-
-  // Handler for status dropdown change (direct on card)
-  const handleStatusSelect = (e) => {
-    e.stopPropagation(); // Prevent card click from opening modal
-    
-    // Require login
-    if (!isLoggedIn || !currentNickname) {
-      onLoginRequired();
-      return;
-    }
-    
-    const newStatus = e.target.value;
-    const wasCleaned = newStatus === "cleaned" && room.status !== "cleaned";
-    const isFO = currentNickname === "FO";
-    
-    // Migrate moved_out to checked_out if needed
-    const finalStatus = migrateStatusOnSave(newStatus);
-    
-    // Determine border color: red if cleaned (green), black otherwise
-    const borderColor = finalStatus === "cleaned" ? "red" : "black";
-    
-    // Prepare room updates
-    const roomUpdates = {
-      status: finalStatus,
-      cleanedToday: wasCleaned ? true : (room.cleanedToday || false),
-      border: borderColor,
-      // FO doesn't add or overwrite names - preserve existing lastEditor
-      // For non-FO users, update lastEditor normally
-      lastEditor: isFO ? (room.lastEditor || "") : (currentNickname || ""),
-      cleanedBy: wasCleaned ? (currentNickname || "") : (room.cleanedBy || ""),
-      selectedBy: wasCleaned ? "" : (room.selectedBy || "")
-    };
-    
-    // Update room immediately for real-time sync
-    if (updateRoomImmediately) {
-      updateRoomImmediately(room.number, roomUpdates);
-    } else {
-      // Fallback to old method if updateRoomImmediately is not available
-      setRooms(prev =>
-        prev.map(r => 
-          r.number === room.number 
-            ? { ...r, ...roomUpdates }
-            : r
-        )
-      );
-    }
-  };
-
-  const handleSelectRoom = () => {
-    // Require login
-    if (!isLoggedIn || !currentNickname) {
-      onLoginRequired();
-      return;
-    }
-    
-    // Toggle border: if currently black, change to red; if red, change to black
-    const newBorder = room.border === "red" ? "black" : "red";
-    
-    console.log(`Selecting room ${room.number} by ${currentNickname} - border: ${newBorder}`);
-    
-    // Update room immediately for real-time sync
-    if (updateRoomImmediately) {
-      updateRoomImmediately(room.number, {
-        selectedBy: currentNickname || "", // Store nickname of user who selected
-        lastEditor: currentNickname === "FO" ? (room.lastEditor || "") : (currentNickname || ""), // FO preserves existing, others update
-        border: newBorder // Toggle border color
-      });
-    } else {
-      // Fallback to old method if updateRoomImmediately is not available
-      setRooms(prev =>
-        prev.map(r => 
-          r.number === room.number 
-            ? { 
-                ...r, 
-                selectedBy: currentNickname || "",
-                lastEditor: currentNickname === "FO" ? (r.lastEditor || "") : (currentNickname || ""),
-                border: newBorder
-              } 
-            : r
-        )
-      );
-    }
-    
-    // Close modal after a brief delay to ensure state update is processed
-    setTimeout(() => {
-      setEditOpen(false);
-    }, 100);
-  };
-
-  const saveEdit = () => {
-    const wasCleaned = editStatus === "cleaned" && room.status !== "cleaned";
-    const wasClosed = editStatus === "closed" && room.status !== "closed";
-    
-    // FO user can change status but should not add/overwrite names
-    // FO should preserve existing lastEditor (don't replace other users' names or add "FO")
-    const isFO = currentNickname === "FO";
-    
-    // Migrate moved_out to checked_out if needed
-    const finalStatus = migrateStatusOnSave(editStatus);
-    
-    // Determine border color: red if cleaned (green), black otherwise
-    const borderColor = finalStatus === "cleaned" ? "red" : "black";
-    
-    // Prepare room updates
-    const roomUpdates = {
-      status: finalStatus,
-      cleanedToday: wasCleaned ? true : (room.cleanedToday || false),
-      border: borderColor, // Set border based on status
-      // FO doesn't add or overwrite names - preserve existing lastEditor
-      // For non-FO users, update lastEditor normally
-      lastEditor: isFO ? (room.lastEditor || "") : (currentNickname || ""),
-      cleanedBy: wasCleaned ? (currentNickname || "") : (room.cleanedBy || ""), // Track who cleaned the room
-      selectedBy: wasCleaned ? "" : (room.selectedBy || "") // Clear selection when cleaned
-    };
-    
-    // Update room immediately for real-time sync
-    if (updateRoomImmediately) {
-      updateRoomImmediately(room.number, roomUpdates);
-    } else {
-      // Fallback to old method if updateRoomImmediately is not available
-      setRooms(prev =>
-        prev.map(r => 
-          r.number === room.number 
-            ? { ...r, ...roomUpdates }
-            : r
-        )
-      );
-    }
-    
-    // Close modal after a brief delay to ensure state update is processed
-    setTimeout(() => {
-      setEditOpen(false);
-    }, 100);
-  };
-
-  // Status options with bilingual labels (Thai + English)
-  // Ordered as requested by user
-  const statusList = [
-    { value: "cleaned", th: "ทำห้องเสร็จแล้ว", en: "Room cleaned", color: "bg-green-200" },
-    { value: "closed", th: "ปิดห้อง", en: "Room closed", color: "bg-gray-500 text-white" },
-    { value: "checked_out", th: "ออกแล้ว", en: "Checked out", color: "bg-red-300" },
-    { value: "vacant", th: "ว่าง", en: "Vacant", color: "bg-white" },
-    { value: "stay_clean", th: "พักต่อ", en: "Stay over", color: "bg-blue-200" },
-    { value: "will_depart_today", th: "จะออกวันนี้", en: "Will depart today", color: "bg-yellow-200" },
-    { value: "long_stay", th: "รายเดือน", en: "Long stay", color: "bg-gray-200" },
-  ];
-
-  // Status options for modal dropdown (Thai only)
-  const statusOptions = statusList.map(s => ({
-    value: s.value,
-    label: s.th,
-    color: s.color
-  }));
 
   return (
     <>
       <div
-        className={`relative rounded-lg shadow-sm p-1.5 flex-shrink-0
+        className={`relative rounded-lg shadow-sm p-1.5 cursor-pointer flex-shrink-0
         ${colorMap[room.status] || "bg-white"}
-        ${isSuite ? "w-20" : "w-16"} min-h-[100px] flex flex-col justify-between
-        ${room.border === "red" ? "border-2 border-red-600" : "border border-black"}`}
+        ${isSuite ? "w-20" : "w-16"} h-16 flex flex-col justify-between
+        ${borderColor}`}
+        onClick={() => {
+          if (isLoggedIn) {
+            setEditStatus(room.status || "vacant");
+            setEditOpen(true);
+          } else {
+            onLoginRequired();
+          }
+        }}
       >
         <div className="flex-1 flex flex-col justify-between">
-          {/* Clickable header area to open edit modal */}
-          <div 
-            className="cursor-pointer"
-            onClick={() => {
-              if (isLoggedIn) {
-                setEditStatus(normalizeStatusForEdit(room.status));
-                setEditOpen(true);
-              } else {
-                onLoginRequired();
-              }
-            }}
-          >
+          <div>
             <div className="font-bold text-base leading-tight">{room.number}</div>
             <div className="text-[10px] text-[#63738A] leading-tight">{room.type}</div>
             {(room.selectedBy || room.status === "cleaned") && room.lastEditor && (
@@ -263,28 +151,8 @@ const RoomCard = ({ room, setRooms, updateRoomImmediately, isLoggedIn, onLoginRe
               </div>
             )}
           </div>
-          
-          {/* Mobile-friendly bilingual status dropdown */}
-          <div className="mt-1 w-full" onClick={(e) => e.stopPropagation()}>
-            <select
-              value={normalizeStatusForEdit(room.status) || "vacant"}
-              onChange={handleStatusSelect}
-              className={`w-full rounded-lg border border-gray-300 p-1.5 text-[9px] sm:text-[10px] font-medium text-[#0B1320]
-              focus:outline-none focus:ring-2 focus:ring-[#15803D] transition-all
-              ${statusList.find(s => s.value === normalizeStatusForEdit(room.status))?.color || "bg-white"}`}
-              style={{ minHeight: "32px" }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              {statusList.map((s) => (
-                <option key={s.value} value={s.value}>
-                  {`${s.th}  •  ${s.en}`}
-                </option>
-              ))}
-            </select>
-          </div>
-          
           {room.maid && (
-            <div className="text-xs sm:text-[10px] italic text-[#0B1320] truncate mt-0.5">{room.maid}</div>
+            <div className="text-xs sm:text-[10px] italic text-[#0B1320] truncate">{room.maid}</div>
           )}
         </div>
 
@@ -304,76 +172,68 @@ const RoomCard = ({ room, setRooms, updateRoomImmediately, isLoggedIn, onLoginRe
         />
       </div>
 
-      {/* Edit Status/Maid Modal */}
+      {/* Edit Status Modal */}
       {editOpen && (
         <div 
           className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
-            onClick={(e) => {
-              // Close modal if clicking on backdrop (not on modal content)
-              if (e.target === e.currentTarget) {
-                setEditOpen(false);
-                setEditStatus(normalizeStatusForEdit(room.status));
-              }
-            }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setEditOpen(false);
+              setEditStatus(room.status || "vacant");
+            }
+          }}
         >
           <div 
-            className="bg-white rounded-2xl p-4 w-80 shadow-lg"
+            className="bg-white rounded-2xl p-4 w-80 shadow-lg max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="font-medium mb-3 text-[#0B1320]">
               แก้ไขห้อง {room.number}
             </h2>
             
+            {/* Status buttons (Thai only) */}
             <div className="mb-3">
-              <label className="block text-sm font-medium text-[#0B1320] mb-1">
+              <label className="block text-sm font-medium text-[#0B1320] mb-2">
                 สถานะ
               </label>
-              <select
-                value={normalizeStatusForEdit(editStatus)}
-                onChange={e => {
-                  const newStatus = e.target.value;
-                  // Ensure we never set moved_out - always use checked_out instead
-                  setEditStatus(newStatus === "moved_out" ? "checked_out" : newStatus);
-                }}
-                className="w-full border rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#15803D]"
-              >
+              <div className="grid grid-cols-2 gap-2">
                 {statusOptions.map(opt => (
-                  <option key={opt.value} value={opt.value}>
+                  <button
+                    key={opt.value}
+                    onClick={() => handleStatusChange(opt.value)}
+                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      room.status === opt.value 
+                        ? `${opt.color} border-2 border-[#15803D]` 
+                        : `${opt.color} border border-gray-300 hover:border-[#15803D]`
+                    }`}
+                  >
                     {opt.label}
-                  </option>
+                  </button>
                 ))}
-              </select>
+              </div>
             </div>
 
             <div className="flex justify-between gap-2 mt-4">
               <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleSelectRoom();
-                }}
-                className="px-4 py-2 bg-[#15803D] text-white rounded-lg hover:bg-[#166534] transition-colors cursor-pointer"
+                onClick={handleSelectRoom}
+                className={`px-4 py-2 rounded-lg transition-colors cursor-pointer ${
+                  room.border === "red"
+                    ? "bg-red-600 text-white hover:bg-red-700"
+                    : "bg-[#15803D] text-white hover:bg-[#166534]"
+                }`}
                 type="button"
               >
                 เลือกห้องนี้
               </button>
-              <div className="flex gap-2">
-                <button 
-                  onClick={() => {
-                    setEditOpen(false);
-                    // Reset to current room status when canceling
-                    setEditStatus(normalizeStatusForEdit(room.status));
-                  }}
-                  className="px-3 py-1 bg-gray-100 rounded-lg"
-                >
-                  ยกเลิก
-                </button>
-                <button 
-                  onClick={saveEdit}
-                  className="px-3 py-1 bg-[#15803D] text-white rounded-lg"
-                >
-                  บันทึก
-                </button>
-              </div>
+              <button 
+                onClick={() => {
+                  setEditOpen(false);
+                  setEditStatus(room.status || "vacant");
+                }}
+                className="px-3 py-1 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                ปิด
+              </button>
             </div>
           </div>
         </div>
@@ -384,7 +244,6 @@ const RoomCard = ({ room, setRooms, updateRoomImmediately, isLoggedIn, onLoginRe
         <div 
           className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
           onClick={(e) => {
-            // Close modal if clicking on backdrop (not on modal content)
             if (e.target === e.currentTarget) {
               setRemarkOpen(false);
             }
@@ -433,4 +292,3 @@ const RoomCard = ({ room, setRooms, updateRoomImmediately, isLoggedIn, onLoginRe
 };
 
 export default RoomCard;
-
