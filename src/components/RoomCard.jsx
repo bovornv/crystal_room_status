@@ -81,6 +81,53 @@ const RoomCard = ({ room, setRooms, updateRoomImmediately, isLoggedIn, onLoginRe
     }, 100);
   };
 
+  // Handler for status dropdown change (direct on card)
+  const handleStatusSelect = (e) => {
+    e.stopPropagation(); // Prevent card click from opening modal
+    
+    // Require login
+    if (!isLoggedIn || !currentNickname) {
+      onLoginRequired();
+      return;
+    }
+    
+    const newStatus = e.target.value;
+    const wasCleaned = newStatus === "cleaned" && room.status !== "cleaned";
+    const isFO = currentNickname === "FO";
+    
+    // Migrate moved_out to checked_out if needed
+    const finalStatus = migrateStatusOnSave(newStatus);
+    
+    // Determine border color: red if cleaned (green), black otherwise
+    const borderColor = finalStatus === "cleaned" ? "red" : "black";
+    
+    // Prepare room updates
+    const roomUpdates = {
+      status: finalStatus,
+      cleanedToday: wasCleaned ? true : (room.cleanedToday || false),
+      border: borderColor,
+      // FO doesn't add or overwrite names - preserve existing lastEditor
+      // For non-FO users, update lastEditor normally
+      lastEditor: isFO ? (room.lastEditor || "") : (currentNickname || ""),
+      cleanedBy: wasCleaned ? (currentNickname || "") : (room.cleanedBy || ""),
+      selectedBy: wasCleaned ? "" : (room.selectedBy || "")
+    };
+    
+    // Update room immediately for real-time sync
+    if (updateRoomImmediately) {
+      updateRoomImmediately(room.number, roomUpdates);
+    } else {
+      // Fallback to old method if updateRoomImmediately is not available
+      setRooms(prev =>
+        prev.map(r => 
+          r.number === room.number 
+            ? { ...r, ...roomUpdates }
+            : r
+        )
+      );
+    }
+  };
+
   const handleSelectRoom = () => {
     // Require login
     if (!isLoggedIn || !currentNickname) {
@@ -88,18 +135,17 @@ const RoomCard = ({ room, setRooms, updateRoomImmediately, isLoggedIn, onLoginRe
       return;
     }
     
-    // Set flag to prevent Firestore listener from overwriting during selection
-    if (setIsManualEdit) {
-      setIsManualEdit(true);
-    }
+    // Toggle border: if currently black, change to red; if red, change to black
+    const newBorder = room.border === "red" ? "black" : "red";
     
-    console.log(`Selecting room ${room.number} by ${currentNickname}`);
+    console.log(`Selecting room ${room.number} by ${currentNickname} - border: ${newBorder}`);
     
     // Update room immediately for real-time sync
     if (updateRoomImmediately) {
       updateRoomImmediately(room.number, {
         selectedBy: currentNickname || "", // Store nickname of user who selected
-        lastEditor: currentNickname || "" // Store nickname of user who selected
+        lastEditor: currentNickname === "FO" ? (room.lastEditor || "") : (currentNickname || ""), // FO preserves existing, others update
+        border: newBorder // Toggle border color
       });
     } else {
       // Fallback to old method if updateRoomImmediately is not available
@@ -108,8 +154,9 @@ const RoomCard = ({ room, setRooms, updateRoomImmediately, isLoggedIn, onLoginRe
           r.number === room.number 
             ? { 
                 ...r, 
-                selectedBy: currentNickname || "", // Store nickname of user who selected
-                lastEditor: currentNickname || "" // Store nickname of user who selected
+                selectedBy: currentNickname || "",
+                lastEditor: currentNickname === "FO" ? (r.lastEditor || "") : (currentNickname || ""),
+                border: newBorder
               } 
             : r
         )
@@ -168,42 +215,46 @@ const RoomCard = ({ room, setRooms, updateRoomImmediately, isLoggedIn, onLoginRe
     }, 100);
   };
 
-  // Status options - only one "ออกแล้ว" option (checked_out)
-  // moved_out is NOT included to avoid duplicate
+  // Status options with bilingual labels (Thai + English)
   // Ordered as requested by user
-  const statusOptions = [
-    { value: "cleaned", label: "ทำห้องเสร็จแล้ว", color: "bg-green-200" },
-    { value: "closed", label: "ปิดห้อง", color: "bg-gray-500" },
-    { value: "checked_out", label: "ออกแล้ว", color: "bg-red-300" },
-    { value: "vacant", label: "ว่าง", color: "bg-white" },
-    { value: "stay_clean", label: "พักต่อ", color: "bg-blue-200" },
-    { value: "will_depart_today", label: "จะออกวันนี้", color: "bg-yellow-200" },
-    { value: "long_stay", label: "รายเดือน", color: "bg-gray-200" },
-  ].filter((opt, index, self) => 
-    // Remove any duplicates based on label
-    index === self.findIndex(o => o.label === opt.label)
-  );
+  const statusList = [
+    { value: "cleaned", th: "ทำห้องเสร็จแล้ว", en: "Room cleaned", color: "bg-green-200" },
+    { value: "closed", th: "ปิดห้อง", en: "Room closed", color: "bg-gray-500 text-white" },
+    { value: "checked_out", th: "ออกแล้ว", en: "Checked out", color: "bg-red-300" },
+    { value: "vacant", th: "ว่าง", en: "Vacant", color: "bg-white" },
+    { value: "stay_clean", th: "พักต่อ", en: "Stay over", color: "bg-blue-200" },
+    { value: "will_depart_today", th: "จะออกวันนี้", en: "Will depart today", color: "bg-yellow-200" },
+    { value: "long_stay", th: "รายเดือน", en: "Long stay", color: "bg-gray-200" },
+  ];
+
+  // Status options for modal dropdown (Thai only)
+  const statusOptions = statusList.map(s => ({
+    value: s.value,
+    label: s.th,
+    color: s.color
+  }));
 
   return (
     <>
       <div
-        className={`relative rounded-lg shadow-sm p-1.5 cursor-pointer flex-shrink-0
+        className={`relative rounded-lg shadow-sm p-1.5 flex-shrink-0
         ${colorMap[room.status] || "bg-white"}
-        ${isSuite ? "w-20" : "w-16"} h-16 flex flex-col justify-between
+        ${isSuite ? "w-20" : "w-16"} min-h-[100px] flex flex-col justify-between
         ${room.border === "red" ? "border-2 border-red-600" : "border border-black"}`}
-        onClick={() => {
-          if (isLoggedIn) {
-            // Initialize editStatus with current room status when opening modal
-            // Map moved_out to checked_out to avoid duplicate in dropdown
-            setEditStatus(normalizeStatusForEdit(room.status));
-            setEditOpen(true);
-          } else {
-            onLoginRequired();
-          }
-        }}
       >
         <div className="flex-1 flex flex-col justify-between">
-          <div>
+          {/* Clickable header area to open edit modal */}
+          <div 
+            className="cursor-pointer"
+            onClick={() => {
+              if (isLoggedIn) {
+                setEditStatus(normalizeStatusForEdit(room.status));
+                setEditOpen(true);
+              } else {
+                onLoginRequired();
+              }
+            }}
+          >
             <div className="font-bold text-base leading-tight">{room.number}</div>
             <div className="text-[10px] text-[#63738A] leading-tight">{room.type}</div>
             {(room.selectedBy || room.status === "cleaned") && room.lastEditor && (
@@ -212,8 +263,28 @@ const RoomCard = ({ room, setRooms, updateRoomImmediately, isLoggedIn, onLoginRe
               </div>
             )}
           </div>
+          
+          {/* Mobile-friendly bilingual status dropdown */}
+          <div className="mt-1 w-full" onClick={(e) => e.stopPropagation()}>
+            <select
+              value={normalizeStatusForEdit(room.status) || "vacant"}
+              onChange={handleStatusSelect}
+              className={`w-full rounded-lg border border-gray-300 p-1.5 text-[9px] sm:text-[10px] font-medium text-[#0B1320]
+              focus:outline-none focus:ring-2 focus:ring-[#15803D] transition-all
+              ${statusList.find(s => s.value === normalizeStatusForEdit(room.status))?.color || "bg-white"}`}
+              style={{ minHeight: "32px" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {statusList.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {`${s.th}  •  ${s.en}`}
+                </option>
+              ))}
+            </select>
+          </div>
+          
           {room.maid && (
-            <div className="text-xs sm:text-[10px] italic text-[#0B1320] truncate">{room.maid}</div>
+            <div className="text-xs sm:text-[10px] italic text-[#0B1320] truncate mt-0.5">{room.maid}</div>
           )}
         </div>
 
