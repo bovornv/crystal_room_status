@@ -48,8 +48,11 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
     const wasCleaned = newStatus === "cleaned" && room.status !== "cleaned";
     const isFO = currentNickname === "FO";
     
-    // Determine border color: red if cleaned (green), black otherwise
-    const borderColor = newStatus === "cleaned" ? "red" : "black";
+    // For non-FO users: when pressing "ทำห้องเสร็จแล้ว", border is set to black
+    // For FO users: border is red if cleaned, black otherwise
+    const borderColor = isFO 
+      ? (newStatus === "cleaned" ? "red" : "black")
+      : "black"; // Non-FO always sets border to black when pressing "ทำห้องเสร็จแล้ว"
     
     const roomUpdates = {
       status: newStatus,
@@ -175,7 +178,7 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
       {/* Edit Status Modal */}
       {editOpen && (
         <div 
-          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
               setEditOpen(false);
@@ -184,24 +187,26 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
           }}
         >
           <div 
-            className="bg-white rounded-2xl p-4 w-80 shadow-lg max-h-[90vh] overflow-y-auto"
+            className="bg-white rounded-2xl p-6 w-full max-w-md shadow-lg max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 className="font-medium mb-3 text-[#0B1320]">
+            <h2 className="font-bold text-2xl mb-4 text-[#0B1320] text-center">
               แก้ไขห้อง {room.number}
             </h2>
             
             {/* Status buttons (Thai only) */}
-            <div className="mb-3">
-              <label className="block text-sm font-medium text-[#0B1320] mb-2">
+            <div className="mb-4">
+              <label className="block text-lg font-semibold text-[#0B1320] mb-3">
                 สถานะ
               </label>
-              <div className="grid grid-cols-2 gap-2">
-                {statusOptions.map(opt => (
+              <div className="grid grid-cols-2 gap-3">
+                {(currentNickname === "FO" ? statusOptions : statusOptions.filter(opt => opt.value === "cleaned")).map(opt => (
                   <button
                     key={opt.value}
                     onClick={() => handleStatusChange(opt.value)}
-                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    className={`px-4 py-4 rounded-lg text-lg font-bold transition-colors ${
+                      opt.value === "closed" ? "text-white" : "text-[#0B1320]"
+                    } ${
                       room.status === opt.value 
                         ? `${opt.color} border-2 border-[#15803D]` 
                         : `${opt.color} border border-gray-300 hover:border-[#15803D]`
@@ -213,24 +218,27 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
               </div>
             </div>
 
-            <div className="flex justify-between gap-2 mt-4">
-              <button
-                onClick={handleSelectRoom}
-                className={`px-4 py-2 rounded-lg transition-colors cursor-pointer ${
-                  room.border === "red"
-                    ? "bg-red-600 text-white hover:bg-red-700"
-                    : "bg-[#15803D] text-white hover:bg-[#166534]"
-                }`}
-                type="button"
-              >
-                เลือกห้องนี้
-              </button>
+            <div className={`flex ${currentNickname === "FO" ? "justify-end" : "justify-between"} gap-3 mt-6`}>
+              {/* "เลือกห้องนี้" button - only visible for non-FO users, default green */}
+              {currentNickname !== "FO" && (
+                <button
+                  onClick={handleSelectRoom}
+                  className={`px-6 py-4 rounded-lg text-lg font-bold transition-colors cursor-pointer ${
+                    room.border === "red"
+                      ? "bg-red-600 text-white hover:bg-red-700"
+                      : "bg-[#15803D] text-white hover:bg-[#166534]"
+                  }`}
+                  type="button"
+                >
+                  เลือกห้องนี้
+                </button>
+              )}
               <button 
                 onClick={() => {
                   setEditOpen(false);
                   setEditStatus(room.status || "vacant");
                 }}
-                className="px-3 py-1 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                className="px-6 py-4 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors text-lg font-semibold"
               >
                 ปิด
               </button>
