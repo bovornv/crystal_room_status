@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import RoomCard from "./RoomCard";
 import * as pdfjsLib from "pdfjs-dist";
-import { db } from "../config/firebase";
+import { db } from "../services/firebase";
 import { collection, doc, getDoc, setDoc, onSnapshot, writeBatch } from "firebase/firestore";
 
 // Configure PDF.js worker for Vite
@@ -540,11 +540,20 @@ const Dashboard = () => {
       // Update only rooms found in PDF - set status based on report type
       // In-House PDF = blue (stay_clean)
       // Expected Departure PDF = yellow (will_depart_today)
+      // After Expected Departure PDF, auto-assign gray-500 to long-stay rooms: 206, 207, 503, 608, 609
       // Calculate updated rooms first, then update state
+      const longStayRooms = ["206", "207", "503", "608", "609"];
       const updatedRooms = rooms.map(r => {
         // Convert to string for comparison
         const roomNumStr = String(r.number);
         const isInPDF = validExistingRooms.some(pdfRoom => String(pdfRoom) === roomNumStr);
+        const isLongStay = longStayRooms.includes(roomNumStr);
+        
+        // After Expected Departure PDF upload, auto-assign gray-500 to long-stay rooms
+        if (type === "departure" && isLongStay) {
+          console.log(`Auto-assigning long-stay room ${r.number} to gray-500`);
+          return { ...r, status: "closed", cleanedToday: false, border: r.border || "black" };
+        }
         
         // Only update rooms found in the PDF
         if (isInPDF) {
@@ -557,8 +566,11 @@ const Dashboard = () => {
           if (type === "departure") {
             // Expected Departure PDF: set to yellow (will_depart_today)
             // Preserve border (keep existing or default to black)
-            console.log(`Updating room ${r.number} to will_depart_today (yellow)`);
-            return { ...r, status: "will_depart_today", cleanedToday: false, border: r.border || "black" };
+            // Skip if it's a long-stay room (already handled above)
+            if (!isLongStay) {
+              console.log(`Updating room ${r.number} to will_depart_today (yellow)`);
+              return { ...r, status: "will_depart_today", cleanedToday: false, border: r.border || "black" };
+            }
           }
         }
         // Return room unchanged if not in PDF
@@ -698,34 +710,21 @@ const Dashboard = () => {
     }
     
     
-    // Reset only green, red, yellow, or blue rooms to white (vacant)
-    // Keep gray (closed) and dark gray (long stay) unchanged
-    // Clear maid nickname from reset rooms
+    // "ลบข้อมูล" logic: Set ALL rooms to white (vacant) with black border
+    // Clear all maid nicknames and lastEditor from ALL rooms
     // Do not delete remark dot or remark text
     const clearedRooms = rooms.map(r => {
-      // Keep gray rooms (closed = gray-500, long_stay = gray-200) unchanged
-      if (r.status === "closed" || r.status === "long_stay") {
-        return r;
-      }
-      
-      // Reset green, red, yellow, or blue to white (vacant)
-      if (r.status === "cleaned" || r.status === "checked_out" || 
-          r.status === "will_depart_today" || r.status === "stay_clean") {
       return {
         ...r,
-        status: "vacant",
-          maid: "", // Clear maid nickname
-        lastEditor: "",
+        status: "vacant", // ALL rooms become white (vacant)
+        maid: "", // Clear maid nickname from ALL rooms
+        lastEditor: "", // Clear lastEditor from ALL rooms
         selectedBy: "",
         cleanedBy: "",
-          cleanedToday: false,
-          border: "black", // Set border to black
-          remark: r.remark || "" // Preserve remark - do not delete
+        cleanedToday: false,
+        border: "black", // ALL rooms get black border
+        remark: r.remark || "" // Preserve remark - do not delete
       };
-      }
-      
-      // Already white or other status - no change needed
-      return r;
     });
 
     // Update local state
