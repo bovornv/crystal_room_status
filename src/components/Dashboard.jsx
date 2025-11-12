@@ -540,7 +540,7 @@ const Dashboard = () => {
       // Update only rooms found in PDF - set status based on report type
       // In-House PDF = blue (stay_clean)
       // Expected Departure PDF = yellow (will_depart_today)
-      // After Expected Departure PDF upload, ALWAYS assign gray-500 to long-stay rooms: 206, 207, 503, 608, 609
+      // After Expected Departure PDF upload, ALWAYS assign gray-200 (long_stay) to long-stay rooms: 206, 207, 503, 608, 609
       // Calculate updated rooms first, then update state
       const longStayRooms = ["206", "207", "503", "608", "609"];
       const updatedRooms = rooms.map(r => {
@@ -549,11 +549,11 @@ const Dashboard = () => {
         const isInPDF = validExistingRooms.some(pdfRoom => String(pdfRoom) === roomNumStr);
         const isLongStay = longStayRooms.includes(roomNumStr);
         
-        // After Expected Departure PDF upload, ALWAYS assign gray-500 to long-stay rooms
+        // After Expected Departure PDF upload, ALWAYS assign gray-200 (long_stay) to long-stay rooms
         // This happens regardless of whether they appear in the PDF
         if (type === "departure" && isLongStay) {
-          console.log(`Auto-assigning long-stay room ${r.number} to gray-500 (closed)`);
-          return { ...r, status: "closed", cleanedToday: false, border: r.border || "black" };
+          console.log(`Auto-assigning long-stay room ${r.number} to gray-200 (long_stay)`);
+          return { ...r, status: "long_stay", cleanedToday: false, border: r.border || "black" };
         }
         
         // Only update rooms found in the PDF
@@ -567,7 +567,7 @@ const Dashboard = () => {
           if (type === "departure") {
             // Expected Departure PDF: set to yellow (will_depart_today)
             // Preserve border (keep existing or default to black)
-            // Skip if it's a long-stay room (already handled above - they become gray-500)
+            // Skip if it's a long-stay room (already handled above - they become gray-200/long_stay)
             if (!isLongStay) {
               console.log(`Updating room ${r.number} to will_depart_today (yellow)`);
               return { ...r, status: "will_depart_today", cleanedToday: false, border: r.border || "black" };

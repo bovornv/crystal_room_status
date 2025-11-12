@@ -173,12 +173,12 @@ const RoomCard = ({ room, setRooms, updateRoomImmediately, isLoggedIn, onLoginRe
   // Ordered as requested by user
   const statusOptions = [
     { value: "cleaned", label: "ทำห้องเสร็จแล้ว", color: "bg-green-200" },
-    { value: "closed", label: "ปิดห้อง", color: "bg-gray-200" },
+    { value: "closed", label: "ปิดห้อง", color: "bg-gray-500" },
     { value: "checked_out", label: "ออกแล้ว", color: "bg-red-300" },
     { value: "vacant", label: "ว่าง", color: "bg-white" },
     { value: "stay_clean", label: "พักต่อ", color: "bg-blue-200" },
     { value: "will_depart_today", label: "จะออกวันนี้", color: "bg-yellow-200" },
-    { value: "long_stay", label: "รายเดือน", color: "bg-gray-500" },
+    { value: "long_stay", label: "รายเดือน", color: "bg-gray-200" },
   ].filter((opt, index, self) => 
     // Remove any duplicates based on label
     index === self.findIndex(o => o.label === opt.label)
