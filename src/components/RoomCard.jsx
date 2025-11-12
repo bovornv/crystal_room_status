@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 
-const RoomCard = ({ room, setRooms, isLoggedIn, onLoginRequired, currentNickname, currentDate, setIsManualEdit }) => {
+const RoomCard = ({ room, setRooms, updateRoomImmediately, isLoggedIn, onLoginRequired, currentNickname, currentDate, setIsManualEdit }) => {
   // Helper function to normalize status - migrate moved_out to checked_out
   // Both mean "ออกแล้ว" (already departed), so we consolidate to checked_out only
   const normalizeStatusForEdit = (status) => {
@@ -65,22 +65,20 @@ const RoomCard = ({ room, setRooms, isLoggedIn, onLoginRequired, currentNickname
     
     console.log(`Saving remark for room ${room.number}: ${finalRemark.substring(0, 50)}...`);
     
-    setRooms(prev =>
-      prev.map(r => r.number === room.number ? { ...r, remark: finalRemark } : r)
-    );
+    // Update room immediately for real-time sync
+    if (updateRoomImmediately) {
+      updateRoomImmediately(room.number, { remark: finalRemark });
+    } else {
+      // Fallback to old method if updateRoomImmediately is not available
+      setRooms(prev =>
+        prev.map(r => r.number === room.number ? { ...r, remark: finalRemark } : r)
+      );
+    }
     
     // Close modal after a brief delay to ensure state update is processed
     setTimeout(() => {
       setRemarkOpen(false);
     }, 100);
-    
-    // Wait for Firestore to sync, then re-enable listener
-    if (setIsManualEdit) {
-      setTimeout(() => {
-        setIsManualEdit(false);
-        console.log("Remark save flag reset");
-      }, 5000); // 5 seconds to ensure Firestore sync completes
-    }
   };
 
   const handleSelectRoom = () => {
@@ -97,78 +95,73 @@ const RoomCard = ({ room, setRooms, isLoggedIn, onLoginRequired, currentNickname
     
     console.log(`Selecting room ${room.number} by ${currentNickname}`);
     
-    setRooms(prev =>
-      prev.map(r => 
-        r.number === room.number 
-          ? { 
-              ...r, 
-              selectedBy: currentNickname || "", // Store nickname of user who selected
-              lastEditor: currentNickname || "" // Store nickname of user who selected
-            } 
-          : r
-      )
-    );
+    // Update room immediately for real-time sync
+    if (updateRoomImmediately) {
+      updateRoomImmediately(room.number, {
+        selectedBy: currentNickname || "", // Store nickname of user who selected
+        lastEditor: currentNickname || "" // Store nickname of user who selected
+      });
+    } else {
+      // Fallback to old method if updateRoomImmediately is not available
+      setRooms(prev =>
+        prev.map(r => 
+          r.number === room.number 
+            ? { 
+                ...r, 
+                selectedBy: currentNickname || "", // Store nickname of user who selected
+                lastEditor: currentNickname || "" // Store nickname of user who selected
+              } 
+            : r
+        )
+      );
+    }
     
     // Close modal after a brief delay to ensure state update is processed
     setTimeout(() => {
       setEditOpen(false);
     }, 100);
-    
-    // Wait for Firestore to sync, then re-enable listener
-    if (setIsManualEdit) {
-      setTimeout(() => {
-        setIsManualEdit(false);
-        console.log("Room selection flag reset");
-      }, 5000); // 5 seconds to ensure Firestore sync completes
-    }
   };
 
   const saveEdit = () => {
     const wasCleaned = editStatus === "cleaned" && room.status !== "cleaned";
     const wasClosed = editStatus === "closed" && room.status !== "closed";
     
-    // Set flag to prevent Firestore listener from overwriting during manual edit
-    // Do this FIRST before any state updates
-    // Pass room number so we can track which specific room was edited
-    if (setIsManualEdit) {
-      setIsManualEdit(true, room.number);
-    }
-    
     // FO user can change status but should not add/overwrite names
     // FO should preserve existing lastEditor (don't replace other users' names or add "FO")
     const isFO = currentNickname === "FO";
     
-    // Update rooms state - migrate moved_out to checked_out if needed
+    // Migrate moved_out to checked_out if needed
     const finalStatus = migrateStatusOnSave(editStatus);
-    setRooms(prev =>
-      prev.map(r => 
-        r.number === room.number 
-          ? { 
-              ...r, 
-              status: finalStatus, 
-              cleanedToday: wasCleaned ? true : (r.cleanedToday || false),
-              // FO doesn't add or overwrite names - preserve existing lastEditor
-              // For non-FO users, update lastEditor normally
-              lastEditor: isFO ? (r.lastEditor || "") : (currentNickname || ""),
-              cleanedBy: wasCleaned ? (currentNickname || "") : (r.cleanedBy || ""), // Track who cleaned the room
-              selectedBy: wasCleaned ? "" : (r.selectedBy || "") // Clear selection when cleaned
-            } 
-          : r
-      )
-    );
+    
+    // Prepare room updates
+    const roomUpdates = {
+      status: finalStatus,
+      cleanedToday: wasCleaned ? true : (room.cleanedToday || false),
+      // FO doesn't add or overwrite names - preserve existing lastEditor
+      // For non-FO users, update lastEditor normally
+      lastEditor: isFO ? (room.lastEditor || "") : (currentNickname || ""),
+      cleanedBy: wasCleaned ? (currentNickname || "") : (room.cleanedBy || ""), // Track who cleaned the room
+      selectedBy: wasCleaned ? "" : (room.selectedBy || "") // Clear selection when cleaned
+    };
+    
+    // Update room immediately for real-time sync
+    if (updateRoomImmediately) {
+      updateRoomImmediately(room.number, roomUpdates);
+    } else {
+      // Fallback to old method if updateRoomImmediately is not available
+      setRooms(prev =>
+        prev.map(r => 
+          r.number === room.number 
+            ? { ...r, ...roomUpdates }
+            : r
+        )
+      );
+    }
     
     // Close modal after a brief delay to ensure state update is processed
     setTimeout(() => {
       setEditOpen(false);
     }, 100);
-    
-    // Wait longer for Firestore to sync, then re-enable listener
-    // The debounced write takes 500ms, plus network latency, so we need more time
-    if (setIsManualEdit) {
-      setTimeout(() => {
-        setIsManualEdit(false);
-      }, 5000); // 5 seconds to ensure Firestore sync completes before re-enabling listener
-    }
   };
 
   // Status options - only one "ออกแล้ว" option (checked_out)
