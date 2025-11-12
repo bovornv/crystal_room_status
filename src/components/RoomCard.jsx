@@ -48,11 +48,9 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
     const wasCleaned = newStatus === "cleaned" && room.status !== "cleaned";
     const isFO = currentNickname === "FO";
     
-    // For non-FO users: when pressing "ทำห้องเสร็จแล้ว", border is set to black
-    // For FO users: border is red if cleaned, black otherwise
-    const borderColor = isFO 
-      ? (newStatus === "cleaned" ? "red" : "black")
-      : "black"; // Non-FO always sets border to black when pressing "ทำห้องเสร็จแล้ว"
+    // For both FO and non-FO users: when pressing "ทำห้องเสร็จแล้ว", border is set to black
+    // Border is only set to red when user explicitly clicks "เลือกห้องนี้" button
+    const borderColor = "black"; // Always set border to black when changing status
     
     const roomUpdates = {
       status: newStatus,
@@ -199,23 +197,40 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
               <label className="block text-lg font-semibold text-[#0B1320] mb-3">
                 สถานะ
               </label>
-              <div className="grid grid-cols-2 gap-3">
-                {(currentNickname === "FO" ? statusOptions : statusOptions.filter(opt => opt.value === "cleaned")).map(opt => (
+              {currentNickname === "FO" ? (
+                // FO users: show all status buttons in grid
+                <div className="grid grid-cols-2 gap-3">
+                  {statusOptions.map(opt => (
+                    <button
+                      key={opt.value}
+                      onClick={() => handleStatusChange(opt.value)}
+                      className={`px-4 py-4 rounded-lg text-lg font-bold transition-colors ${
+                        opt.value === "closed" ? "text-white" : "text-[#0B1320]"
+                      } ${
+                        room.status === opt.value 
+                          ? `${opt.color} border-2 border-[#15803D]` 
+                          : `${opt.color} border border-gray-300 hover:border-[#15803D]`
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                // Non-FO users: show only "ทำห้องเสร็จแล้ว" button, centered, full-width
+                <div className="flex justify-center">
                   <button
-                    key={opt.value}
-                    onClick={() => handleStatusChange(opt.value)}
-                    className={`px-4 py-4 rounded-lg text-lg font-bold transition-colors ${
-                      opt.value === "closed" ? "text-white" : "text-[#0B1320]"
-                    } ${
-                      room.status === opt.value 
-                        ? `${opt.color} border-2 border-[#15803D]` 
-                        : `${opt.color} border border-gray-300 hover:border-[#15803D]`
+                    onClick={() => handleStatusChange("cleaned")}
+                    className={`w-full px-6 py-5 rounded-lg text-xl font-bold transition-colors text-center ${
+                      room.status === "cleaned" 
+                        ? "bg-green-200 border-2 border-[#15803D]" 
+                        : "bg-green-200 border border-gray-300 hover:border-[#15803D]"
                     }`}
                   >
-                    {opt.label}
+                    ทำห้องเสร็จแล้ว
                   </button>
-                ))}
-              </div>
+                </div>
+              )}
             </div>
 
             <div className={`flex ${currentNickname === "FO" ? "justify-end" : "justify-between"} gap-3 mt-6`}>
