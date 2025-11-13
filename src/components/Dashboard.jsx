@@ -58,6 +58,8 @@ const Dashboard = () => {
   const [showClearConfirmModal, setShowClearConfirmModal] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [teamNotes, setTeamNotes] = useState("");
+  const isSavingNotes = useRef(false);
+  const notesTextareaRef = useRef(null);
   
   // Update time every minute
   useEffect(() => {
@@ -122,6 +124,11 @@ const Dashboard = () => {
     
     // Set up real-time listener for team notes
     const unsubscribe = onSnapshot(notesDoc, (snapshot) => {
+      // Skip update if we're currently saving or if textarea is focused (user is editing)
+      if (isSavingNotes.current || (notesTextareaRef.current && document.activeElement === notesTextareaRef.current)) {
+        return;
+      }
+      
       if (snapshot.exists()) {
         const data = snapshot.data();
         setTeamNotes(data.text || "");
@@ -131,7 +138,7 @@ const Dashboard = () => {
         } catch (error) {
           console.error("Error saving to localStorage:", error);
         }
-          } else {
+      } else {
         // Document doesn't exist, initialize with empty string
         setTeamNotes("");
       }
@@ -789,6 +796,7 @@ const Dashboard = () => {
           </label>
           <div className="flex gap-2">
             <textarea
+              ref={notesTextareaRef}
               value={teamNotes}
               onChange={(e) => {
                 // Add bullet point if line doesn't start with one
@@ -838,21 +846,37 @@ const Dashboard = () => {
               }}
             />
             <button
-              onClick={async () => {
+              onClick={async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                if (isSavingNotes.current) {
+                  return; // Prevent double-save
+                }
+                
                 try {
+                  isSavingNotes.current = true;
                   const notesDoc = doc(db, "notes", "today");
                   await setDoc(notesDoc, { 
                     text: teamNotes,
                     lastUpdated: new Date().toISOString()
                   }, { merge: true });
                   console.log("✅ Team notes saved to Firestore");
+                  
+                  // Brief delay to allow Firestore to process, then reset flag
+                  setTimeout(() => {
+                    isSavingNotes.current = false;
+                  }, 500);
+                  
                   // Show brief success feedback
                   alert("✅ บันทึกเรียบร้อย");
                 } catch (error) {
                   console.error("Error saving team notes:", error);
+                  isSavingNotes.current = false;
                   alert("เกิดข้อผิดพลาดในการบันทึก: " + error.message);
                 }
               }}
+              type="button"
               className="px-6 py-3 bg-[#15803D] text-white rounded-lg hover:bg-[#166534] transition-colors text-lg font-semibold whitespace-nowrap self-start"
             >
               บันทึก
