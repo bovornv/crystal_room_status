@@ -1,13 +1,24 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 
 const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, currentNickname, currentDate }) => {
   const [remark, setRemark] = useState(room.remark || "");
   const [popupOpen, setPopupOpen] = useState(false);
+  const [toast, setToast] = useState(false);
+  const toastTimeoutRef = useRef(null);
 
   // Sync state when room prop changes
   useEffect(() => {
     setRemark(room.remark || "");
   }, [room.remark]);
+
+  // Cleanup toast timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const colorMap = {
     cleaned: "bg-green-200",
@@ -34,33 +45,40 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
   const borderColor = room.border === "red" ? "border-2 border-red-600" : "border border-black";
   const isFO = currentNickname === "FO";
 
-  // Handle status change
-  const handleStatusChange = async (newStatus) => {
+  // Handle status change and save
+  const handleSave = async (statusUpdate) => {
     if (!isLoggedIn || !currentNickname) {
       onLoginRequired();
       return;
     }
 
-    const wasCleaned = newStatus === "cleaned" && room.status !== "cleaned";
+    const wasCleaned = statusUpdate.status === "cleaned" && room.status !== "cleaned";
     
     const roomUpdates = {
-      status: newStatus,
+      ...statusUpdate,
       cleanedToday: wasCleaned ? true : (room.cleanedToday || false),
-      border: "black", // Always set border to black when changing status
       // FO doesn't add or overwrite names - preserve existing lastEditor
       lastEditor: isFO ? (room.lastEditor || "") : (currentNickname || ""),
       cleanedBy: wasCleaned ? (currentNickname || "") : (room.cleanedBy || ""),
-      selectedBy: wasCleaned ? "" : (room.selectedBy || "")
+      selectedBy: wasCleaned ? "" : (room.selectedBy || ""),
+      // Set maid name only for non-FO users when cleaning
+      maid: isFO ? (room.maid || "") : (statusUpdate.status === "cleaned" ? (currentNickname || "") : (room.maid || ""))
     };
 
     // Update immediately for real-time sync
     if (updateRoomImmediately) {
       await updateRoomImmediately(room.number, roomUpdates);
+      // Clear any existing timeout
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+      setToast(true);
+      toastTimeoutRef.current = setTimeout(() => setToast(false), 1500);
     }
   };
 
   // Handle "เลือกห้องนี้" button - toggle border red/black
-  const handleSelectRoom = async () => {
+  const toggleBorder = async () => {
     if (!isLoggedIn || !currentNickname) {
       onLoginRequired();
       return;
@@ -78,10 +96,16 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
     // Update immediately for real-time sync
     if (updateRoomImmediately) {
       await updateRoomImmediately(room.number, roomUpdates);
+      // Clear any existing timeout
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+      setToast(true);
+      toastTimeoutRef.current = setTimeout(() => setToast(false), 1500);
     }
   };
 
-  // Save remark (and optionally status if changed)
+  // Save remark
   const saveRemark = async () => {
     if (!isLoggedIn || !currentNickname) {
       onLoginRequired();
@@ -101,6 +125,12 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
     // Update immediately for real-time sync
     if (updateRoomImmediately) {
       await updateRoomImmediately(room.number, { remark: finalRemark });
+      // Clear any existing timeout
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+      setToast(true);
+      toastTimeoutRef.current = setTimeout(() => setToast(false), 1500);
     }
     
     setPopupOpen(false);
@@ -163,68 +193,87 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
           }}
         >
           <div 
-            className="bg-white rounded-2xl p-6 w-full max-w-md shadow-lg max-h-[90vh] overflow-y-auto font-['Noto_Sans_Thai']"
+            className="bg-white rounded-2xl p-5 w-full max-w-md shadow-lg max-h-[90vh] overflow-y-auto font-['Noto_Sans_Thai']"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 className="font-bold text-2xl mb-4 text-[#0B1320] text-center">
+            <h2 className="font-semibold mb-3 text-lg text-center text-[#0B1320]">
               ห้อง {room.number}
             </h2>
             
             {/* Status buttons */}
-            <div className="mb-4">
-              {isFO ? (
-                // FO users: show all status buttons in grid
-                <div className="grid grid-cols-2 gap-3">
-                  {statusOptions.map(opt => (
-                    <button
-                      key={opt.value}
-                      onClick={() => handleStatusChange(opt.value)}
-                      className={`px-4 py-4 rounded-lg text-lg font-bold transition-colors ${
-                        opt.value === "closed" ? "text-white" : "text-[#0B1320]"
-                      } ${
-                        room.status === opt.value 
-                          ? `${opt.color} border-2 border-[#15803D]` 
-                          : `${opt.color} border border-gray-300 hover:border-[#15803D]`
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                // Non-FO users: show only "ทำห้องเสร็จแล้ว" button, centered, full-width
-                <div className="flex justify-center">
-                  <button
-                    onClick={() => handleStatusChange("cleaned")}
-                    className={`w-full px-6 py-5 rounded-lg text-xl font-bold transition-colors text-center ${
-                      room.status === "cleaned" 
-                        ? "bg-green-200 border-2 border-[#15803D]" 
-                        : "bg-green-200 border border-gray-300 hover:border-[#15803D]"
-                    }`}
-                  >
-                    ทำห้องเสร็จแล้ว
-                  </button>
-                </div>
-              )}
-            </div>
+            {isFO ? (
+              // FO users: show all status buttons in grid
+              <div className="grid grid-cols-2 gap-2 mb-3">
+                <button 
+                  onClick={() => handleSave({ status: "cleaned", border: "black" })} 
+                  className="bg-green-200 rounded-lg py-3 text-base font-semibold"
+                >
+                  ทำห้องเสร็จแล้ว
+                </button>
+                <button 
+                  onClick={() => handleSave({ status: "closed" })} 
+                  className="bg-gray-500 text-white rounded-lg py-3 text-base font-semibold"
+                >
+                  ปิดห้อง
+                </button>
+                <button 
+                  onClick={() => handleSave({ status: "checked_out" })} 
+                  className="bg-red-300 rounded-lg py-3 text-base font-semibold"
+                >
+                  ออกแล้ว
+                </button>
+                <button 
+                  onClick={() => handleSave({ status: "vacant" })} 
+                  className="bg-white border border-gray-300 rounded-lg py-3 text-base font-semibold"
+                >
+                  ว่าง
+                </button>
+                <button 
+                  onClick={() => handleSave({ status: "stay_clean" })} 
+                  className="bg-blue-200 rounded-lg py-3 text-base font-semibold"
+                >
+                  พักต่อ
+                </button>
+                <button 
+                  onClick={() => handleSave({ status: "will_depart_today" })} 
+                  className="bg-yellow-200 rounded-lg py-3 text-base font-semibold"
+                >
+                  จะออกวันนี้
+                </button>
+                <button 
+                  onClick={() => handleSave({ status: "long_stay" })} 
+                  className="bg-gray-200 rounded-lg py-3 text-base font-semibold"
+                >
+                  รายเดือน
+                </button>
+              </div>
+            ) : (
+              // Non-FO users: show only "ทำห้องเสร็จแล้ว" button, centered, full-width
+              <div className="flex justify-center mb-3">
+                <button
+                  onClick={() => handleSave({ status: "cleaned", border: "black" })}
+                  className="bg-green-200 rounded-lg px-8 py-4 text-lg font-semibold w-full"
+                >
+                  ทำห้องเสร็จแล้ว
+                </button>
+              </div>
+            )}
 
             {/* Remark textarea */}
-            <div className="mb-4">
-              <textarea
-                value={remark}
-                onChange={e => setRemark(e.target.value)}
-                className="w-full border rounded-lg p-3 text-lg h-24"
-                placeholder="เพิ่มหมายเหตุที่นี่..."
-              />
-            </div>
+            <textarea
+              value={remark}
+              onChange={e => setRemark(e.target.value)}
+              className="w-full border rounded-lg p-3 text-base h-24 mb-3"
+              placeholder="เพิ่มหมายเหตุที่นี่..."
+            />
 
             {/* Buttons */}
-            <div className={`flex ${isFO ? "justify-end" : "justify-between"} gap-3`}>
-              {/* "เลือกห้องนี้" button - only visible for non-FO users, default green */}
+            <div className={`flex ${isFO ? "justify-end" : "justify-between"} gap-2`}>
+              {/* "เลือกห้องนี้" button - only visible for non-FO users */}
               {!isFO && (
                 <button
-                  onClick={handleSelectRoom}
-                  className={`px-6 py-4 rounded-lg text-lg font-bold transition-colors cursor-pointer ${
+                  onClick={toggleBorder}
+                  className={`px-4 py-3 rounded-lg text-base font-semibold transition-colors ${
                     room.border === "red"
                       ? "bg-red-600 text-white hover:bg-red-700"
                       : "bg-[#15803D] text-white hover:bg-[#166534]"
@@ -234,24 +283,31 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
                   เลือกห้องนี้
                 </button>
               )}
-              <div className="flex gap-3">
+              <div className="flex gap-2 ml-auto">
                 <button 
                   onClick={() => {
                     setPopupOpen(false);
                   }}
-                  className="px-6 py-4 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors text-lg font-semibold"
+                  className="px-4 py-3 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors text-base font-semibold"
                 >
                   ปิด
                 </button>
                 <button 
                   onClick={saveRemark}
-                  className="px-6 py-4 bg-[#15803D] text-white rounded-lg hover:bg-[#166534] transition-colors text-lg font-bold"
+                  className="px-4 py-3 bg-[#15803D] text-white rounded-lg hover:bg-[#166534] transition-colors text-base font-semibold"
                 >
                   บันทึก
                 </button>
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Toast notification */}
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-[#15803D] text-white px-6 py-3 rounded-lg shadow-lg text-base font-semibold z-50">
+          ✅ บันทึกเรียบร้อย
         </div>
       )}
     </>
