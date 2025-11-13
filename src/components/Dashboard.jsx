@@ -116,20 +116,36 @@ const Dashboard = () => {
     return () => clearInterval(logoutCheckInterval);
   }, []);
 
-  // Load team notes from localStorage on mount
+  // Load team notes from Firestore on mount and set up real-time listener
   useEffect(() => {
-    const storedNotes = localStorage.getItem('crystal_team_notes');
-    if (storedNotes) {
-      setTeamNotes(storedNotes);
-    }
-  }, []);
+    const notesDoc = doc(db, "notes", "today");
+    
+    // Set up real-time listener for team notes
+    const unsubscribe = onSnapshot(notesDoc, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        setTeamNotes(data.text || "");
+        // Update localStorage as backup
+        try {
+          localStorage.setItem('crystal_team_notes', data.text || "");
+        } catch (error) {
+          console.error("Error saving to localStorage:", error);
+        }
+          } else {
+        // Document doesn't exist, initialize with empty string
+        setTeamNotes("");
+      }
+    }, (error) => {
+      console.error("Error listening to team notes:", error);
+      // Fallback to localStorage if Firestore fails
+      const storedNotes = localStorage.getItem('crystal_team_notes');
+      if (storedNotes) {
+        setTeamNotes(storedNotes);
+      }
+    });
 
-  // Save team notes to localStorage whenever they change
-  useEffect(() => {
-    if (teamNotes !== undefined) {
-      localStorage.setItem('crystal_team_notes', teamNotes);
-    }
-  }, [teamNotes]);
+    return () => unsubscribe();
+  }, []);
 
   const today = currentTime;
   const buddhistYear = today.getFullYear() + 543; // Convert CE to พ.ศ. (Buddhist Era)
@@ -320,8 +336,8 @@ const Dashboard = () => {
     const loadFromFirestoreOnce = async () => {
       try {
         const snapshot = await getDoc(roomsDoc);
-        if (snapshot.exists()) {
-          const data = snapshot.data();
+      if (snapshot.exists()) {
+        const data = snapshot.data();
           if (data.rooms && Array.isArray(data.rooms) && data.rooms.length > 0) {
             // Firestore has data, use it
             const migratedRooms = migrateMovedOutToCheckedOut(data.rooms);
@@ -366,13 +382,13 @@ const Dashboard = () => {
     const unsubscribe = onSnapshot(roomsDoc, (snapshot) => {
       // Skip during initial load to prevent double-loading
       if (isInitialLoad.current) {
-        return;
+                return;
       }
       
       // Skip during PDF upload to prevent overwriting bulk updates
       if (isUploadingPDF.current) {
-        return;
-      }
+                return;
+              }
       
       if (snapshot.exists()) {
         const data = snapshot.data();
@@ -559,16 +575,18 @@ const Dashboard = () => {
   );
 
   // Calculate maid scores dynamically
-  // Deluxe = 1pt, Suite = 2pts, only count green (cleaned) rooms cleaned today
-  // Track by nickname (cleanedBy) when status is changed to "cleaned"
+  // Deluxe = 1pt, Suite = 2pts, count both green (cleaned) and cyan (cleaned_stay) rooms
+  // Track by nickname (maid field) when status is changed to "cleaned" or "cleaned_stay"
   const calculateMaidScores = () => {
     const scores = {};
     rooms.forEach(room => {
-      if (room.status === "cleaned" && room.cleanedToday && room.cleanedBy) {
-        const isSuite = room.type.toUpperCase().startsWith("S");
+      if ((room.status === "cleaned" || room.status === "cleaned_stay") && room.maid) {
+        const isSuite = room.type?.toUpperCase().startsWith("S");
         const points = isSuite ? 2 : 1;
-        const nickname = room.cleanedBy;
+        const nickname = room.maid.trim();
+        if (nickname) {
         scores[nickname] = (scores[nickname] || 0) + points;
+        }
       }
     });
     return scores;
@@ -769,55 +787,77 @@ const Dashboard = () => {
           <label className="block text-lg font-bold text-[#15803D] mb-2">
             📝 ข้อความสำคัญ (วันนี้)
           </label>
-          <textarea
-            value={teamNotes}
-            onChange={(e) => {
-              // Add bullet point if line doesn't start with one
-              const lines = e.target.value.split('\n');
-              const newValue = lines.map(line => {
-                if (line.trim() && !line.trim().startsWith('•')) {
-                  return '• ' + line.trim();
+          <div className="flex gap-2">
+            <textarea
+              value={teamNotes}
+              onChange={(e) => {
+                // Add bullet point if line doesn't start with one
+                const lines = e.target.value.split('\n');
+                const newValue = lines.map(line => {
+                  if (line.trim() && !line.trim().startsWith('•')) {
+                    return '• ' + line.trim();
+                  }
+                  return line;
+                }).join('\n');
+                setTeamNotes(newValue);
+              }}
+              onKeyDown={(e) => {
+                // Auto-add bullet on new line
+                if (e.key === 'Enter') {
+                  const textarea = e.target;
+                  const start = textarea.selectionStart;
+                  const end = textarea.selectionEnd;
+                  const value = textarea.value;
+                  const before = value.substring(0, start);
+                  const after = value.substring(end);
+                  
+                  // Check if current line has bullet
+                  const lineStart = before.lastIndexOf('\n') + 1;
+                  const currentLine = before.substring(lineStart);
+                  
+                  // If current line is not empty and doesn't have bullet, add it
+                  if (currentLine.trim() && !currentLine.trim().startsWith('•')) {
+                    e.preventDefault();
+                    const newValue = before + '• ' + after;
+                    setTeamNotes(newValue);
+                    setTimeout(() => {
+                      textarea.selectionStart = textarea.selectionEnd = start + 2;
+                    }, 0);
+                  }
                 }
-                return line;
-              }).join('\n');
-              setTeamNotes(newValue);
-            }}
-            onKeyDown={(e) => {
-              // Auto-add bullet on new line
-              if (e.key === 'Enter') {
-                const textarea = e.target;
-                const start = textarea.selectionStart;
-                const end = textarea.selectionEnd;
-                const value = textarea.value;
-                const before = value.substring(0, start);
-                const after = value.substring(end);
-                
-                // Check if current line has bullet
-                const lineStart = before.lastIndexOf('\n') + 1;
-                const currentLine = before.substring(lineStart);
-                
-                // If current line is not empty and doesn't have bullet, add it
-                if (currentLine.trim() && !currentLine.trim().startsWith('•')) {
-                  e.preventDefault();
-                  const newValue = before + '• ' + after;
-                  setTeamNotes(newValue);
-                  setTimeout(() => {
-                    textarea.selectionStart = textarea.selectionEnd = start + 2;
-                  }, 0);
+              }}
+              placeholder="ใส่ข้อความสำคัญในนี้"
+              className={`flex-1 p-4 text-lg bg-white border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#15803D] resize-y placeholder:text-gray-400 ${
+                teamNotes.trim() 
+                  ? 'font-bold text-black min-h-[120px]' 
+                  : 'font-normal text-gray-400 h-[60px]'
+              }`}
+              style={{ 
+                fontSize: '18px', 
+                lineHeight: '1.6',
+              }}
+            />
+            <button
+              onClick={async () => {
+                try {
+                  const notesDoc = doc(db, "notes", "today");
+                  await setDoc(notesDoc, { 
+                    text: teamNotes,
+                    lastUpdated: new Date().toISOString()
+                  }, { merge: true });
+                  console.log("✅ Team notes saved to Firestore");
+                  // Show brief success feedback
+                  alert("✅ บันทึกเรียบร้อย");
+                } catch (error) {
+                  console.error("Error saving team notes:", error);
+                  alert("เกิดข้อผิดพลาดในการบันทึก: " + error.message);
                 }
-              }
-            }}
-            placeholder="ใส่ข้อความสำคัญในนี้"
-            className={`w-full p-4 text-lg bg-white border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#15803D] resize-y placeholder:text-gray-400 ${
-              teamNotes.trim() 
-                ? 'font-bold text-black min-h-[120px]' 
-                : 'font-normal text-gray-400 h-[60px]'
-            }`}
-            style={{ 
-              fontSize: '18px', 
-              lineHeight: '1.6',
-            }}
-          />
+              }}
+              className="px-6 py-3 bg-[#15803D] text-white rounded-lg hover:bg-[#166534] transition-colors text-lg font-semibold whitespace-nowrap self-start"
+            >
+              บันทึก
+            </button>
+          </div>
         </div>
       ) : (
         <div className="mb-6 p-4 bg-gray-100 border-2 border-gray-300 rounded-lg text-center">
@@ -1021,7 +1061,11 @@ const Dashboard = () => {
         <div className="space-y-2 text-sm">
           <div className="flex items-center gap-3">
             <div className="w-6 h-6 rounded bg-green-200 flex-shrink-0"></div>
-            <span>ทำห้องเสร็จแล้ว</span>
+            <span>ทำห้องเสร็จแล้ว (ว่าง)</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-6 h-6 rounded bg-cyan-200 flex-shrink-0"></div>
+            <span>ทำห้องเสร็จแล้ว (พักต่อ)</span>
           </div>
           <div className="flex items-center gap-3">
             <div className="w-6 h-6 rounded bg-gray-500 flex-shrink-0"></div>

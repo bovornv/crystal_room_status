@@ -22,6 +22,7 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
 
   const colorMap = {
     cleaned: "bg-green-200",
+    cleaned_stay: "bg-cyan-200",
     closed: "bg-gray-500 text-white",
     checked_out: "bg-red-300",
     vacant: "bg-white",
@@ -32,7 +33,8 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
 
   // Status options with Thai labels only
   const statusOptions = [
-    { value: "cleaned", label: "ทำห้องเสร็จแล้ว", color: "bg-green-200" },
+    { value: "cleaned", label: "ทำห้องเสร็จแล้ว (ว่าง)", color: "bg-green-200" },
+    { value: "cleaned_stay", label: "ทำห้องเสร็จแล้ว (พักต่อ)", color: "bg-cyan-200" },
     { value: "closed", label: "ปิดห้อง", color: "bg-gray-500" },
     { value: "checked_out", label: "ออกแล้ว", color: "bg-red-300" },
     { value: "vacant", label: "ว่าง", color: "bg-white" },
@@ -52,7 +54,8 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
       return;
     }
 
-    const wasCleaned = statusUpdate.status === "cleaned" && room.status !== "cleaned";
+    const wasCleaned = (statusUpdate.status === "cleaned" || statusUpdate.status === "cleaned_stay") && 
+                        room.status !== "cleaned" && room.status !== "cleaned_stay";
     
     const roomUpdates = {
       ...statusUpdate,
@@ -61,8 +64,8 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
       lastEditor: isFO ? (room.lastEditor || "") : (currentNickname || ""),
       cleanedBy: wasCleaned ? (currentNickname || "") : (room.cleanedBy || ""),
       selectedBy: wasCleaned ? "" : (room.selectedBy || ""),
-      // Set maid name only for non-FO users when cleaning - ensure no duplication
-      maid: isFO ? (room.maid || "") : (statusUpdate.status === "cleaned" ? (currentNickname || "").trim() : (room.maid || ""))
+      // Set maid name only for non-FO users when cleaning (green or cyan) - ensure no duplication
+      maid: isFO ? (room.maid || "") : ((statusUpdate.status === "cleaned" || statusUpdate.status === "cleaned_stay") ? (currentNickname || "").trim() : (room.maid || ""))
     };
     
     // Ensure maid field doesn't contain duplicates
@@ -209,60 +212,75 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
             
             {/* Status buttons */}
             {isFO ? (
-              // FO users: show all status buttons in grid
+              // FO users: show all 8 status buttons in grid (large buttons for mobile)
               <div className="grid grid-cols-2 gap-2 mb-3">
                 <button 
                   onClick={() => handleSave({ status: "cleaned", border: "black" })} 
-                  className="bg-green-200 rounded-lg py-3 text-base font-semibold"
+                  className="bg-green-200 rounded-lg py-4 text-lg font-semibold"
                 >
-                  ทำห้องเสร็จแล้ว
+                  ทำห้องเสร็จแล้ว (ว่าง)
+                </button>
+                <button 
+                  onClick={() => handleSave({ status: "cleaned_stay", border: "black" })} 
+                  className="bg-cyan-200 rounded-lg py-4 text-lg font-semibold"
+                >
+                  ทำห้องเสร็จแล้ว (พักต่อ)
                 </button>
                 <button 
                   onClick={() => handleSave({ status: "closed" })} 
-                  className="bg-gray-500 text-white rounded-lg py-3 text-base font-semibold"
+                  className="bg-gray-500 text-white rounded-lg py-4 text-lg font-semibold"
                 >
                   ปิดห้อง
                 </button>
                 <button 
                   onClick={() => handleSave({ status: "checked_out" })} 
-                  className="bg-red-300 rounded-lg py-3 text-base font-semibold"
+                  className="bg-red-300 rounded-lg py-4 text-lg font-semibold"
                 >
                   ออกแล้ว
                 </button>
                 <button 
                   onClick={() => handleSave({ status: "vacant" })} 
-                  className="bg-white border border-gray-300 rounded-lg py-3 text-base font-semibold"
+                  className="bg-white border border-gray-300 rounded-lg py-4 text-lg font-semibold"
                 >
                   ว่าง
                 </button>
                 <button 
                   onClick={() => handleSave({ status: "stay_clean" })} 
-                  className="bg-blue-200 rounded-lg py-3 text-base font-semibold"
+                  className="bg-blue-200 rounded-lg py-4 text-lg font-semibold"
                 >
                   พักต่อ
                 </button>
                 <button 
                   onClick={() => handleSave({ status: "will_depart_today" })} 
-                  className="bg-yellow-200 rounded-lg py-3 text-base font-semibold"
+                  className="bg-yellow-200 rounded-lg py-4 text-lg font-semibold"
                 >
                   จะออกวันนี้
                 </button>
                 <button 
                   onClick={() => handleSave({ status: "long_stay" })} 
-                  className="bg-gray-200 rounded-lg py-3 text-base font-semibold"
+                  className="bg-gray-200 rounded-lg py-4 text-lg font-semibold"
                 >
                   รายเดือน
                 </button>
               </div>
             ) : (
-              // Non-FO users: show only "ทำห้องเสร็จแล้ว" button, centered, full-width
+              // Non-FO users: show green button if room ≠ blue, cyan button if room = blue
               <div className="flex justify-center mb-3">
-                <button
-                  onClick={() => handleSave({ status: "cleaned", border: "black" })}
-                  className="bg-green-200 rounded-lg px-8 py-4 text-lg font-semibold w-full"
-                >
-                  ทำห้องเสร็จแล้ว
-                </button>
+                {room.status === "stay_clean" ? (
+                  <button
+                    onClick={() => handleSave({ status: "cleaned_stay", border: "black" })}
+                    className="bg-cyan-200 rounded-lg px-8 py-4 text-lg font-semibold w-full"
+                  >
+                    ทำห้องเสร็จแล้ว (พักต่อ)
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleSave({ status: "cleaned", border: "black" })}
+                    className="bg-green-200 rounded-lg px-8 py-4 text-lg font-semibold w-full"
+                  >
+                    ทำห้องเสร็จแล้ว (ว่าง)
+                  </button>
+                )}
               </div>
             )}
 
@@ -280,7 +298,7 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
               {!isFO && (
                 <button
                   onClick={toggleBorder}
-                  className={`px-4 py-3 rounded-lg text-base font-semibold transition-colors ${
+                  className={`px-4 py-3 rounded-lg text-lg font-semibold transition-colors ${
                     room.border === "red"
                       ? "bg-red-600 text-white hover:bg-red-700"
                       : "bg-[#15803D] text-white hover:bg-[#166534]"
@@ -295,13 +313,13 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
                   onClick={() => {
                     setPopupOpen(false);
                   }}
-                  className="px-4 py-3 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors text-base font-semibold"
+                  className="px-4 py-3 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors text-lg font-semibold"
                 >
                   ปิด
                 </button>
                 <button 
                   onClick={saveRemark}
-                  className="px-4 py-3 bg-[#15803D] text-white rounded-lg hover:bg-[#166534] transition-colors text-base font-semibold"
+                  className="px-4 py-3 bg-[#15803D] text-white rounded-lg hover:bg-[#166534] transition-colors text-lg font-semibold"
                 >
                   บันทึก
                 </button>
