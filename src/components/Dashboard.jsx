@@ -790,11 +790,11 @@ const Dashboard = () => {
 
       {/* Team Notes Text Box - Login Required */}
       {isLoggedIn ? (
-        <div className="mb-6">
-          <label className="block text-lg font-bold text-[#15803D] mb-2">
+        <div className="mb-3 sm:mb-6">
+          <label className="block text-sm sm:text-lg font-bold text-[#15803D] mb-1 sm:mb-2">
             📝 ข้อความสำคัญ (วันนี้)
           </label>
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-1 sm:gap-2">
             <textarea
               ref={notesTextareaRef}
               value={teamNotes}
@@ -835,14 +835,14 @@ const Dashboard = () => {
                 }
               }}
               placeholder="ใส่ข้อความสำคัญในนี้"
-              className={`flex-1 p-4 text-lg bg-white border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#15803D] resize-y placeholder:text-gray-400 ${
+              className={`w-full sm:flex-1 p-2 sm:p-4 text-sm sm:text-lg bg-white border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#15803D] resize-y placeholder:text-gray-400 ${
                 teamNotes.trim() 
-                  ? 'font-bold text-black min-h-[120px]' 
-                  : 'font-normal text-gray-400 h-[60px]'
+                  ? 'font-bold text-black min-h-[60px] sm:min-h-[120px]' 
+                  : 'font-normal text-gray-400 h-[50px] sm:h-[60px]'
               }`}
               style={{ 
-                fontSize: '18px', 
-                lineHeight: '1.6',
+                fontSize: '14px',
+                lineHeight: '1.5',
               }}
             />
             <button
@@ -877,15 +877,15 @@ const Dashboard = () => {
                 }
               }}
               type="button"
-              className="px-6 py-3 bg-[#15803D] text-white rounded-lg hover:bg-[#166534] transition-colors text-lg font-semibold whitespace-nowrap self-start"
+              className="px-3 py-2 sm:px-6 sm:py-3 bg-[#15803D] text-white rounded-lg hover:bg-[#166534] transition-colors text-sm sm:text-lg font-semibold whitespace-nowrap self-start sm:self-start"
             >
               บันทึก
             </button>
           </div>
         </div>
       ) : (
-        <div className="mb-6 p-4 bg-gray-100 border-2 border-gray-300 rounded-lg text-center">
-          <p className="text-gray-600 font-medium">
+        <div className="mb-3 sm:mb-6 p-2 sm:p-4 bg-gray-100 border-2 border-gray-300 rounded-lg text-center">
+          <p className="text-xs sm:text-base text-gray-600 font-medium">
             📝 ข้อความสำคัญ (วันนี้) - กรุณาเข้าสู่ระบบเพื่อแก้ไข
           </p>
         </div>
