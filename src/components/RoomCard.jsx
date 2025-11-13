@@ -2,17 +2,12 @@ import React, { useState, useEffect } from "react";
 
 const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, currentNickname, currentDate }) => {
   const [remark, setRemark] = useState(room.remark || "");
-  const [remarkOpen, setRemarkOpen] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
-  const [editStatus, setEditStatus] = useState(room.status || "vacant");
+  const [popupOpen, setPopupOpen] = useState(false);
 
   // Sync state when room prop changes
   useEffect(() => {
     setRemark(room.remark || "");
-    if (!editOpen) {
-      setEditStatus(room.status || "vacant");
-    }
-  }, [room.remark, room.status, editOpen]);
+  }, [room.remark]);
 
   const colorMap = {
     cleaned: "bg-green-200",
@@ -37,8 +32,9 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
 
   const isSuite = room.type?.toUpperCase().startsWith("S");
   const borderColor = room.border === "red" ? "border-2 border-red-600" : "border border-black";
+  const isFO = currentNickname === "FO";
 
-  // Handle status change (from buttons in modal)
+  // Handle status change
   const handleStatusChange = async (newStatus) => {
     if (!isLoggedIn || !currentNickname) {
       onLoginRequired();
@@ -46,16 +42,11 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
     }
 
     const wasCleaned = newStatus === "cleaned" && room.status !== "cleaned";
-    const isFO = currentNickname === "FO";
-    
-    // For both FO and non-FO users: when pressing "ทำห้องเสร็จแล้ว", border is set to black
-    // Border is only set to red when user explicitly clicks "เลือกห้องนี้" button
-    const borderColor = "black"; // Always set border to black when changing status
     
     const roomUpdates = {
       status: newStatus,
       cleanedToday: wasCleaned ? true : (room.cleanedToday || false),
-      border: borderColor,
+      border: "black", // Always set border to black when changing status
       // FO doesn't add or overwrite names - preserve existing lastEditor
       lastEditor: isFO ? (room.lastEditor || "") : (currentNickname || ""),
       cleanedBy: wasCleaned ? (currentNickname || "") : (room.cleanedBy || ""),
@@ -80,7 +71,7 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
     
     const roomUpdates = {
       selectedBy: currentNickname || "",
-      lastEditor: currentNickname === "FO" ? (room.lastEditor || "") : (currentNickname || ""),
+      lastEditor: isFO ? (room.lastEditor || "") : (currentNickname || ""),
       border: newBorder
     };
 
@@ -90,18 +81,7 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
     }
   };
 
-  // Save status change from modal dropdown (if still using it)
-  const saveEdit = async () => {
-    if (!isLoggedIn || !currentNickname) {
-      onLoginRequired();
-      return;
-    }
-
-    await handleStatusChange(editStatus);
-    setEditOpen(false);
-  };
-
-  // Save remark
+  // Save remark (and optionally status if changed)
   const saveRemark = async () => {
     if (!isLoggedIn || !currentNickname) {
       onLoginRequired();
@@ -123,7 +103,7 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
       await updateRoomImmediately(room.number, { remark: finalRemark });
     }
     
-    setRemarkOpen(false);
+    setPopupOpen(false);
   };
 
   return (
@@ -135,8 +115,7 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
         ${borderColor}`}
         onClick={() => {
           if (isLoggedIn) {
-            setEditStatus(room.status || "vacant");
-            setEditOpen(true);
+            setPopupOpen(true);
           } else {
             onLoginRequired();
           }
@@ -164,7 +143,7 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
           onClick={(e) => {
             e.stopPropagation();
             if (isLoggedIn) {
-              setRemarkOpen(true);
+              setPopupOpen(true);
             } else {
               onLoginRequired();
             }
@@ -173,31 +152,27 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
         />
       </div>
 
-      {/* Edit Status Modal */}
-      {editOpen && (
+      {/* Combined Popup Modal */}
+      {popupOpen && (
         <div 
           className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
-              setEditOpen(false);
-              setEditStatus(room.status || "vacant");
+              setPopupOpen(false);
             }
           }}
         >
           <div 
-            className="bg-white rounded-2xl p-6 w-full max-w-md shadow-lg max-h-[90vh] overflow-y-auto"
+            className="bg-white rounded-2xl p-6 w-full max-w-md shadow-lg max-h-[90vh] overflow-y-auto font-['Noto_Sans_Thai']"
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="font-bold text-2xl mb-4 text-[#0B1320] text-center">
-              แก้ไขห้อง {room.number}
+              ห้อง {room.number}
             </h2>
             
-            {/* Status buttons (Thai only) */}
+            {/* Status buttons */}
             <div className="mb-4">
-              <label className="block text-lg font-semibold text-[#0B1320] mb-3">
-                สถานะ
-              </label>
-              {currentNickname === "FO" ? (
+              {isFO ? (
                 // FO users: show all status buttons in grid
                 <div className="grid grid-cols-2 gap-3">
                   {statusOptions.map(opt => (
@@ -233,9 +208,20 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
               )}
             </div>
 
-            <div className={`flex ${currentNickname === "FO" ? "justify-end" : "justify-between"} gap-3 mt-6`}>
+            {/* Remark textarea */}
+            <div className="mb-4">
+              <textarea
+                value={remark}
+                onChange={e => setRemark(e.target.value)}
+                className="w-full border rounded-lg p-3 text-lg h-24"
+                placeholder="เพิ่มหมายเหตุที่นี่..."
+              />
+            </div>
+
+            {/* Buttons */}
+            <div className={`flex ${isFO ? "justify-end" : "justify-between"} gap-3`}>
               {/* "เลือกห้องนี้" button - only visible for non-FO users, default green */}
-              {currentNickname !== "FO" && (
+              {!isFO && (
                 <button
                   onClick={handleSelectRoom}
                   className={`px-6 py-4 rounded-lg text-lg font-bold transition-colors cursor-pointer ${
@@ -248,64 +234,22 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
                   เลือกห้องนี้
                 </button>
               )}
-              <button 
-                onClick={() => {
-                  setEditOpen(false);
-                  setEditStatus(room.status || "vacant");
-                }}
-                className="px-6 py-4 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors text-lg font-semibold"
-              >
-                ปิด
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Remark Modal */}
-      {remarkOpen && (
-        <div 
-          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) {
-              setRemarkOpen(false);
-            }
-          }}
-        >
-          <div 
-            className="bg-white rounded-2xl p-4 w-80 shadow-lg"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="font-medium mb-2 text-[#0B1320]">
-              หมายเหตุ ห้อง {room.number}
-            </h2>
-            <textarea
-              value={remark}
-              onChange={e => setRemark(e.target.value)}
-              className="w-full border rounded-lg p-2 text-sm h-24"
-              placeholder="กรอกหมายเหตุ..."
-            />
-            <div className="flex justify-end gap-2 mt-3">
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setRemarkOpen(false);
-                }}
-                className="px-3 py-1 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors cursor-pointer"
-                type="button"
-              >
-                ปิด
-              </button>
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  saveRemark();
-                }}
-                className="px-3 py-1 bg-[#15803D] text-white rounded-lg hover:bg-[#166534] transition-colors cursor-pointer"
-                type="button"
-              >
-                บันทึก
-              </button>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => {
+                    setPopupOpen(false);
+                  }}
+                  className="px-6 py-4 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors text-lg font-semibold"
+                >
+                  ปิด
+                </button>
+                <button 
+                  onClick={saveRemark}
+                  className="px-6 py-4 bg-[#15803D] text-white rounded-lg hover:bg-[#166534] transition-colors text-lg font-bold"
+                >
+                  บันทึก
+                </button>
+              </div>
             </div>
           </div>
         </div>
