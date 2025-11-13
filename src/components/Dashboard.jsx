@@ -835,13 +835,12 @@ const Dashboard = () => {
                 }
               }}
               placeholder="ใส่ข้อความสำคัญในนี้"
-              className={`w-full sm:flex-1 p-2 sm:p-4 text-sm sm:text-lg bg-white border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#15803D] resize-y placeholder:text-gray-400 ${
+              className={`w-full sm:flex-1 p-2 sm:p-4 text-sm sm:text-base bg-white border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#15803D] resize-y placeholder:text-gray-400 ${
                 teamNotes.trim() 
                   ? 'font-bold text-black min-h-[60px] sm:min-h-[120px]' 
                   : 'font-normal text-gray-400 h-[50px] sm:h-[60px]'
               }`}
               style={{ 
-                fontSize: '14px',
                 lineHeight: '1.5',
               }}
             />
