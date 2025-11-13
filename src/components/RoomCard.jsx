@@ -155,15 +155,13 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
           <div>
             <div className="font-bold text-base leading-tight">{room.number}</div>
             <div className="text-[10px] text-[#63738A] leading-tight">{room.type}</div>
-            {(room.selectedBy || room.status === "cleaned") && room.lastEditor && (
-              <div className="text-xs sm:text-[10px] text-[#15803D] italic leading-tight mt-0.5">
-                {room.lastEditor}
+            {/* Show maid name only once, right below room type */}
+            {room.maid && (
+              <div className="text-xs sm:text-[10px] italic text-[#0B1320] leading-tight mt-0.5 truncate">
+                {room.maid}
               </div>
             )}
           </div>
-          {room.maid && (
-            <div className="text-xs sm:text-[10px] italic text-[#0B1320] truncate">{room.maid}</div>
-          )}
         </div>
 
         <div
