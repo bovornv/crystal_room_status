@@ -61,9 +61,16 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
       lastEditor: isFO ? (room.lastEditor || "") : (currentNickname || ""),
       cleanedBy: wasCleaned ? (currentNickname || "") : (room.cleanedBy || ""),
       selectedBy: wasCleaned ? "" : (room.selectedBy || ""),
-      // Set maid name only for non-FO users when cleaning
-      maid: isFO ? (room.maid || "") : (statusUpdate.status === "cleaned" ? (currentNickname || "") : (room.maid || ""))
+      // Set maid name only for non-FO users when cleaning - ensure no duplication
+      maid: isFO ? (room.maid || "") : (statusUpdate.status === "cleaned" ? (currentNickname || "").trim() : (room.maid || ""))
     };
+    
+    // Ensure maid field doesn't contain duplicates
+    if (roomUpdates.maid && typeof roomUpdates.maid === 'string') {
+      // Remove any duplicate nicknames (in case of data corruption)
+      const parts = roomUpdates.maid.trim().split(/\s+/);
+      roomUpdates.maid = [...new Set(parts)].join(' ').trim();
+    }
 
     // Update immediately for real-time sync
     if (updateRoomImmediately) {
@@ -90,7 +97,9 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
     const roomUpdates = {
       selectedBy: currentNickname || "",
       lastEditor: isFO ? (room.lastEditor || "") : (currentNickname || ""),
-      border: newBorder
+      border: newBorder,
+      // Ensure maid nickname is set for non-FO users so it displays on all devices
+      maid: isFO ? (room.maid || "") : (room.maid || currentNickname || "")
     };
 
     // Update immediately for real-time sync
@@ -155,10 +164,10 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
           <div>
             <div className="font-bold text-base leading-tight">{room.number}</div>
             <div className="text-[10px] text-[#63738A] leading-tight">{room.type}</div>
-            {/* Show maid name only once, right below room type */}
-            {room.maid && (
-              <div className="text-xs sm:text-[10px] italic text-[#0B1320] leading-tight mt-0.5 truncate">
-                {room.maid}
+            {/* Show maid name only once, right below room type - ensure no duplicates, visible on all devices */}
+            {room.maid && room.maid.trim() && (
+              <div className="text-xs sm:text-[10px] italic text-[#0B1320] leading-tight mt-0.5 truncate block">
+                {room.maid.trim()}
               </div>
             )}
           </div>
