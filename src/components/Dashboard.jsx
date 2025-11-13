@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import RoomCard from "./RoomCard";
 import * as pdfjsLib from "pdfjs-dist";
 import { db } from "../services/firebase";
-import { collection, doc, getDoc, setDoc, onSnapshot, writeBatch } from "firebase/firestore";
+import { collection, doc, getDoc, setDoc, onSnapshot } from "firebase/firestore";
 
 // Configure PDF.js worker for Vite
 if (typeof window !== 'undefined' && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
@@ -992,7 +992,7 @@ const Dashboard = () => {
         <table className="w-full text-sm">
           <thead><tr className="border-b">
             <th className="text-left">แม่บ้าน</th>
-            <th className="text-right">ห้อง</th>
+            <th className="text-right">คะแนน</th>
           </tr></thead>
           <tbody>
             {maidEntries.length > 0 ? (
