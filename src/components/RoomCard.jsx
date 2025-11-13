@@ -98,8 +98,8 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
       selectedBy: currentNickname || "",
       lastEditor: isFO ? (room.lastEditor || "") : (currentNickname || ""),
       border: newBorder,
-      // Ensure maid nickname is set for non-FO users so it displays on all devices
-      maid: isFO ? (room.maid || "") : (room.maid || currentNickname || "")
+      // For non-FO users, always set maid nickname when pressing "เลือกห้องนี้" so it displays
+      maid: isFO ? (room.maid || "") : (currentNickname || "")
     };
 
     // Update immediately for real-time sync
