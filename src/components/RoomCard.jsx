@@ -90,14 +90,14 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
       <div className="flex flex-col items-start">
         <div className="flex justify-between items-start w-full">
           <div>
-            <p className="font-semibold text-sm">{room.number}</p>
-            <p className="text-xs text-gray-700">{room.type}</p>
+            <p className="font-bold text-lg sm:text-xl">{room.number}</p>
+            <p className="text-xs sm:text-sm text-gray-700">{room.type}</p>
             {room.maid && (
-              <p className="text-xs font-medium text-gray-800 mt-1 block">{room.maid}</p>
+              <p className="text-base sm:text-lg font-semibold text-gray-800 mt-1 block">{room.maid}</p>
             )}
           </div>
           {room.remark && (
-            <div className="h-2 w-2 rounded-full bg-red-500 mt-1 flex-shrink-0"></div>
+            <div className="h-3 w-3 sm:h-4 sm:w-4 rounded-full bg-red-500 mt-1 flex-shrink-0"></div>
           )}
         </div>
       </div>
