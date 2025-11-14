@@ -3,7 +3,7 @@ import RoomCard from "./RoomCard";
 import CommonAreaCard from "./CommonAreaCard";
 import * as pdfjsLib from "pdfjs-dist";
 import { db } from "../services/firebase";
-import { collection, doc, getDoc, setDoc, onSnapshot, serverTimestamp } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, setDoc, onSnapshot, serverTimestamp } from "firebase/firestore";
 
 // Configure PDF.js worker for Vite
 if (typeof window !== 'undefined' && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
@@ -669,34 +669,58 @@ const Dashboard = () => {
       return;
     }
     
-    
-    // "ลบข้อมูล" logic: Set ALL rooms to white (vacant) with black border
-    // Clear all maid nicknames and lastEditor from ALL rooms
-    // Do not delete remark dot or remark text
-    const clearedRooms = rooms.map(r => {
-      return {
-        ...r,
-        status: "vacant", // ALL rooms become white (vacant)
-        maid: "", // Clear maid nickname from ALL rooms
-        lastEditor: "", // Clear lastEditor from ALL rooms
-        selectedBy: "",
-        cleanedBy: "",
-        cleanedToday: false,
-        border: "black", // ALL rooms get black border
-        remark: r.remark || "" // Preserve remark - do not delete
-      };
-    });
-
-    // Update local state
-    setRooms(clearedRooms);
-    
-    // Write to Firestore immediately for real-time sync
     try {
+      // "ลบข้อมูล" logic: Set ALL rooms to white (vacant) with black border
+      // Clear all maid nicknames and lastEditor from ALL rooms
+      // Do not delete remark dot or remark text
+      const clearedRooms = rooms.map(r => {
+        return {
+          ...r,
+          status: "vacant", // ALL rooms become white (vacant)
+          maid: "", // Clear maid nickname from ALL rooms
+          lastEditor: "", // Clear lastEditor from ALL rooms
+          selectedBy: "",
+          cleanedBy: "",
+          cleanedToday: false,
+          border: "black", // ALL rooms get black border
+          remark: r.remark || "" // Preserve remark - do not delete
+        };
+      });
+
+      // Update local state
+      setRooms(clearedRooms);
+      
+      // Write rooms to Firestore immediately for real-time sync
       await updateFirestoreImmediately(clearedRooms);
-      console.log("✅ Clear data synced to Firestore - all devices will see cleared data");
+      console.log("✅ Clear rooms data synced to Firestore");
       console.log(`Cleared ${clearedRooms.filter(r => r.status === "vacant").length} rooms to vacant`);
+
+      // --- Clear all common area data ---
+      const areaSnapshot = await getDocs(collection(db, "commonAreas"));
+      const areaPromises = areaSnapshot.docs.map(async (docSnap) => {
+        // Use the document ID from Firestore (it's already stored correctly)
+        const docId = docSnap.id;
+        const data = docSnap.data();
+        
+        await setDoc(
+          doc(db, "commonAreas", docId),
+          {
+            area: data.area,
+            time: data.time,
+            status: "waiting", // Reset to red (รอทำ)
+            maid: "", // Clear maid nickname
+            border: "black", // Reset border to black
+          },
+          { merge: true }
+        );
+      });
+
+      await Promise.all(areaPromises);
+      console.log(`✅ Cleared ${areaSnapshot.docs.length} common areas to waiting state`);
+
+      alert("ข้อมูลทั้งหมดถูกล้างเรียบร้อยแล้ว ✅");
     } catch (error) {
-      console.error("Error syncing clear data to Firestore:", error);
+      console.error("Error clearing data:", error);
       alert("เกิดข้อผิดพลาดในการลบข้อมูล: " + error.message);
     }
     
@@ -850,9 +874,9 @@ const Dashboard = () => {
       </div>
 
       {/* Team Notes Text Box - Compact, visible to all */}
-      <div className="mb-2">
-        <div className="flex items-center gap-2 mb-1">
-          <label className="text-xs sm:text-sm font-bold text-[#15803D]">
+      <div className="mb-1">
+        <div className="flex items-center justify-between gap-1 mb-0.5">
+          <label className="text-sm sm:text-base font-bold text-[#15803D]">
             📝 ข้อความสำคัญ (วันนี้)
           </label>
           {isLoggedIn && (
@@ -886,7 +910,7 @@ const Dashboard = () => {
                 }
               }}
               type="button"
-              className="px-2 py-1 bg-[#15803D] text-white rounded text-xs font-semibold hover:bg-[#166534] transition-colors"
+              className="px-2 py-0.5 bg-[#15803D] text-white rounded text-xs font-bold hover:bg-[#166534] transition-colors whitespace-nowrap"
             >
               บันทึก
             </button>
@@ -903,21 +927,21 @@ const Dashboard = () => {
             }}
             readOnly={!isLoggedIn}
             placeholder={isLoggedIn ? "" : "ข้อความสำคัญวันนี้"}
-            className={`w-full p-2 text-xs sm:text-sm bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#15803D] resize-none ${
+            className={`w-full p-1.5 text-sm sm:text-base bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#15803D] resize-none ${
               teamNotes.trim() 
-                ? 'text-black' 
+                ? 'text-black font-bold' 
                 : isLoggedIn 
-                  ? 'text-gray-500' 
-                  : 'text-gray-400'
+                  ? 'text-gray-500 font-normal' 
+                  : 'text-gray-400 font-normal'
             }`}
             style={{ 
-              minHeight: '40px',
-              maxHeight: '60px',
-              lineHeight: '1.4',
+              minHeight: '36px',
+              maxHeight: '50px',
+              lineHeight: '1.3',
             }}
           />
         ) : (
-          <div className="w-full p-2 text-xs sm:text-sm bg-white border border-gray-300 rounded-lg text-gray-400 min-h-[40px] flex items-center">
+          <div className="w-full p-1.5 text-sm sm:text-base bg-white border border-gray-300 rounded-lg text-gray-400 min-h-[36px] flex items-center font-normal">
             ข้อความสำคัญวันนี้
           </div>
         )}

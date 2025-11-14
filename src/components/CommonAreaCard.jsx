@@ -46,7 +46,7 @@ const CommonAreaCard = ({ area, time, data, nickname, isFO }) => {
     ? "bg-green-200 text-black"
     : "bg-red-300 text-black";
 
-  const buttonText = isCleaned ? "สะอาดแล้ว" : "รอทำ";
+  const buttonText = isCleaned ? "สะอาด" : "รอทำ";
   const borderClass = border === "red" ? "border-2 border-red-600" : "border border-black";
   const isDisabled = isFO || !nickname || !nickname.trim();
 
@@ -102,16 +102,16 @@ const CommonAreaCard = ({ area, time, data, nickname, isFO }) => {
       return;
     }
     try {
-      const newBorder = border === "red" ? "black" : "red";
+      // When "เลือกพื้นที่นี้" is pressed, set border to red and show maid nickname
       await saveArea({
-        border: newBorder,
+        border: "red",
         maid: nickname.trim(),
         status: status, // Preserve current status
       });
-      setBorder(newBorder);
-      console.log("✅ Area border toggled");
+      setBorder("red");
+      console.log("✅ Area border set to red");
     } catch (error) {
-      console.error("Error toggling area border:", error);
+      console.error("Error setting area border:", error);
       alert("เกิดข้อผิดพลาด: " + error.message);
     }
   };
@@ -143,7 +143,11 @@ const CommonAreaCard = ({ area, time, data, nickname, isFO }) => {
       <div className={`${borderClass} rounded-lg overflow-hidden`}>
         <button
           disabled={isDisabled}
-          onClick={() => !isDisabled && setShowPopup(true)}
+          onClick={() => {
+            if (!isDisabled && !isFO) {
+              setShowPopup(true);
+            }
+          }}
           className={`w-full py-3 px-3 rounded-lg text-base sm:text-lg font-semibold ${buttonColor} transition-all ${
             isDisabled 
               ? "opacity-50 cursor-not-allowed" 
@@ -152,7 +156,10 @@ const CommonAreaCard = ({ area, time, data, nickname, isFO }) => {
         >
           {buttonText}
           {isCleaned && maid && (
-            <div className="text-sm mt-1 font-normal">โดย: {maid}</div>
+            <div className="text-sm mt-1 font-normal">{maid}</div>
+          )}
+          {!isCleaned && border === "red" && maid && (
+            <div className="text-sm mt-1 font-normal">{maid}</div>
           )}
         </button>
       </div>
@@ -180,7 +187,7 @@ const CommonAreaCard = ({ area, time, data, nickname, isFO }) => {
             >
               {/* Header */}
               <h2 className="text-xl font-bold mb-4 text-center text-[#15803D]">
-                {area} ({time})
+                {area}
               </h2>
 
               {/* Big green button */}
@@ -189,7 +196,7 @@ const CommonAreaCard = ({ area, time, data, nickname, isFO }) => {
                 className="w-full bg-green-200 hover:bg-green-300 text-black py-4 rounded-lg mb-4 text-lg font-semibold transition-colors"
                 onClick={handleMarkCleaned}
               >
-                สะอาดแล้ว
+                สะอาด
               </button>
 
               {/* Bottom buttons */}
@@ -197,11 +204,7 @@ const CommonAreaCard = ({ area, time, data, nickname, isFO }) => {
                 <button
                   type="button"
                   onClick={handleSelectArea}
-                  className={`px-4 py-2 rounded-lg text-base font-semibold transition-colors ${
-                    border === "red"
-                      ? "bg-red-600 text-white hover:bg-red-700"
-                      : "bg-[#15803D] text-white hover:bg-[#166534]"
-                  }`}
+                  className="bg-[#15803D] text-white px-4 py-2 rounded-lg text-base font-semibold hover:bg-[#166534] transition-colors"
                 >
                   เลือกพื้นที่นี้
                 </button>
