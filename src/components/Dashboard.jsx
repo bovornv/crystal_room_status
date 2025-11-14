@@ -697,26 +697,57 @@ const Dashboard = () => {
 
       // --- Clear all common area data ---
       const areaSnapshot = await getDocs(collection(db, "commonAreas"));
+      console.log(`📋 Found ${areaSnapshot.docs.length} common area documents to clear`);
+      
+      if (areaSnapshot.docs.length === 0) {
+        console.log("⚠️ No common area documents found in Firestore");
+      }
+      
       const areaPromises = areaSnapshot.docs.map(async (docSnap) => {
         // Use the document ID from Firestore (it's already stored correctly)
         const docId = docSnap.id;
         const data = docSnap.data();
         
-        await setDoc(
-          doc(db, "commonAreas", docId),
-          {
-            area: data.area,
-            time: data.time,
+        // Skip if document doesn't have required fields
+        if (!data.area || !data.time) {
+          console.warn(`⚠️ Skipping document ${docId} - missing area or time field`, data);
+          return;
+        }
+        
+        console.log(`🔄 Clearing area: ${docId}`, { 
+          area: data.area, 
+          time: data.time, 
+          currentStatus: data.status, 
+          currentMaid: data.maid,
+          currentBorder: data.border 
+        });
+        
+        try {
+          // Explicitly set all fields to reset state
+          const updateData = {
             status: "waiting", // Reset to red (รอทำ)
-            maid: "", // Clear maid nickname
+            maid: "", // Clear maid nickname - explicitly set to empty string
             border: "black", // Reset border to black
-          },
-          { merge: true }
-        );
+          };
+          
+          // Preserve area and time if they exist
+          if (data.area) updateData.area = data.area;
+          if (data.time) updateData.time = data.time;
+          
+          await setDoc(
+            doc(db, "commonAreas", docId),
+            updateData,
+            { merge: true }
+          );
+          console.log(`✅ Cleared area ${docId}`, updateData);
+        } catch (err) {
+          console.error(`❌ Error clearing area ${docId}:`, err);
+          throw err;
+        }
       });
 
       await Promise.all(areaPromises);
-      console.log(`✅ Cleared ${areaSnapshot.docs.length} common areas to waiting state`);
+      console.log(`✅ Successfully cleared ${areaSnapshot.docs.length} common areas to waiting state`);
 
       alert("ข้อมูลทั้งหมดถูกล้างเรียบร้อยแล้ว ✅");
     } catch (error) {

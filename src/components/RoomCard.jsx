@@ -124,7 +124,7 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
               onClick={(e) => e.stopPropagation()}
             >
               <h2 className="text-xl font-bold mb-4 text-center text-[#15803D]">
-                ห้อง {room.number} — {room.type}
+                ห้อง {room.number}
               </h2>
 
               {/* Maid user */}
