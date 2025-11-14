@@ -46,7 +46,7 @@ const CommonAreaCard = ({ area, time, data, nickname, isFO }) => {
     ? "bg-green-200 text-black"
     : "bg-red-300 text-black";
 
-  const buttonText = isCleaned ? "สะอาด" : "รอทำ";
+  const buttonText = isCleaned ? "สะอาด" : "ไม่สะอาด";
   const borderClass = border === "red" ? "border-2 border-red-600" : "border border-black";
   const isDisabled = isFO || !nickname || !nickname.trim();
 
