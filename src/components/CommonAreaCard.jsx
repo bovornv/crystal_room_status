@@ -53,47 +53,88 @@ const CommonAreaCard = ({ area, time, data, nickname, isFO }) => {
   // --- Firestore save ---
   const saveArea = async (update) => {
     const firestoreDocId = getDocId();
-    await setDoc(
-      doc(db, "commonAreas", firestoreDocId),
-      {
-        area,
-        time,
-        ...update,
-      },
-      { merge: true }
-    );
+    console.log("💾 Saving area:", { firestoreDocId, area, time, update });
+    try {
+      await setDoc(
+        doc(db, "commonAreas", firestoreDocId),
+        {
+          area,
+          time,
+          ...update,
+        },
+        { merge: true }
+      );
+      console.log("✅ Successfully saved to Firestore");
+    } catch (error) {
+      console.error("❌ Firestore save error:", error);
+      throw error;
+    }
   };
 
   // --- Maid actions ---
-  const handleMarkCleaned = async () => {
-    if (isDisabled) return;
-    await saveArea({
-      status: "cleaned",
-      maid: nickname.trim(),
-      border: "black",
-    });
-    setBorder("black");
-    setShowPopup(false);
+  const handleMarkCleaned = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (isDisabled || !nickname || !nickname.trim()) {
+      console.error("Cannot mark cleaned: disabled or no nickname");
+      return;
+    }
+    try {
+      await saveArea({
+        status: "cleaned",
+        maid: nickname.trim(),
+        border: "black",
+      });
+      setBorder("black");
+      setShowPopup(false);
+      console.log("✅ Area marked as cleaned");
+    } catch (error) {
+      console.error("Error marking area as cleaned:", error);
+      alert("เกิดข้อผิดพลาด: " + error.message);
+    }
   };
 
-  const handleSelectArea = async () => {
-    if (isDisabled) return;
-    const newBorder = border === "red" ? "black" : "red";
-    await saveArea({
-      border: newBorder,
-      maid: nickname.trim(),
-    });
-    setBorder(newBorder);
+  const handleSelectArea = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (isDisabled || !nickname || !nickname.trim()) {
+      console.error("Cannot select area: disabled or no nickname");
+      return;
+    }
+    try {
+      const newBorder = border === "red" ? "black" : "red";
+      await saveArea({
+        border: newBorder,
+        maid: nickname.trim(),
+        status: status, // Preserve current status
+      });
+      setBorder(newBorder);
+      console.log("✅ Area border toggled");
+    } catch (error) {
+      console.error("Error toggling area border:", error);
+      alert("เกิดข้อผิดพลาด: " + error.message);
+    }
   };
 
-  const handleSave = async () => {
-    if (isDisabled) return;
-    await saveArea({
-      status: status,
-      maid: maid || nickname.trim(),
-      border: border,
-    });
-    setShowPopup(false);
+  const handleSave = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (isDisabled || !nickname || !nickname.trim()) {
+      console.error("Cannot save: disabled or no nickname");
+      return;
+    }
+    try {
+      await saveArea({
+        status: status,
+        maid: maid || nickname.trim(),
+        border: border,
+      });
+      setShowPopup(false);
+      console.log("✅ Area saved");
+    } catch (error) {
+      console.error("Error saving area:", error);
+      alert("เกิดข้อผิดพลาด: " + error.message);
+    }
   };
 
   return (
@@ -144,6 +185,7 @@ const CommonAreaCard = ({ area, time, data, nickname, isFO }) => {
 
               {/* Big green button */}
               <button
+                type="button"
                 className="w-full bg-green-200 hover:bg-green-300 text-black py-4 rounded-lg mb-4 text-lg font-semibold transition-colors"
                 onClick={handleMarkCleaned}
               >
@@ -153,6 +195,7 @@ const CommonAreaCard = ({ area, time, data, nickname, isFO }) => {
               {/* Bottom buttons */}
               <div className="flex justify-between items-center">
                 <button
+                  type="button"
                   onClick={handleSelectArea}
                   className={`px-4 py-2 rounded-lg text-base font-semibold transition-colors ${
                     border === "red"
@@ -165,12 +208,18 @@ const CommonAreaCard = ({ area, time, data, nickname, isFO }) => {
 
                 <div className="flex gap-2">
                   <button
-                    onClick={() => setShowPopup(false)}
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setShowPopup(false);
+                    }}
                     className="bg-gray-300 text-black px-4 py-2 rounded-lg text-base font-semibold hover:bg-gray-400 transition-colors"
                   >
                     ปิด
                   </button>
                   <button
+                    type="button"
                     onClick={handleSave}
                     className="bg-[#15803D] text-white px-4 py-2 rounded-lg text-base font-semibold hover:bg-[#166534] transition-colors"
                   >
