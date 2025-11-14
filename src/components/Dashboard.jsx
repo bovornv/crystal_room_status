@@ -62,6 +62,8 @@ const Dashboard = () => {
   const isSavingNotes = useRef(false);
   const notesTextareaRef = useRef(null);
   const [commonAreas, setCommonAreas] = useState([]);
+  const [departureRoomCount, setDepartureRoomCount] = useState(0); // Count from expected departure PDF
+  const [inhouseRoomCount, setInhouseRoomCount] = useState(0); // Count from in-house PDF
   
   // Update time every minute
   useEffect(() => {
@@ -169,6 +171,23 @@ const Dashboard = () => {
       setCommonAreas(areas);
     }, (error) => {
       console.error("Error listening to common areas:", error);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Load report counts from Firestore
+  useEffect(() => {
+    const countsDoc = doc(db, "reports", "counts");
+    
+    const unsubscribe = onSnapshot(countsDoc, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        setDepartureRoomCount(data.departureRoomCount || 0);
+        setInhouseRoomCount(data.inhouseRoomCount || 0);
+      }
+    }, (error) => {
+      console.error("Error listening to report counts:", error);
     });
 
     return () => unsubscribe();
@@ -570,6 +589,21 @@ const Dashboard = () => {
       console.log(`📊 PDF Upload Summary: ${changedRooms.length} rooms changed status`);
       console.log(`   Changed rooms:`, changedRooms.map(r => `${r.number}: ${rooms.find(or => String(or.number) === String(r.number))?.status} → ${r.status}`));
 
+      // Store room count from PDF (column 1 count)
+      if (type === "departure") {
+        setDepartureRoomCount(validExistingRooms.length);
+        // Save to Firestore
+        await setDoc(doc(db, "reports", "counts"), {
+          departureRoomCount: validExistingRooms.length,
+        }, { merge: true });
+      } else if (type === "inhouse") {
+        setInhouseRoomCount(validExistingRooms.length);
+        // Save to Firestore
+        await setDoc(doc(db, "reports", "counts"), {
+          inhouseRoomCount: validExistingRooms.length,
+        }, { merge: true });
+      }
+
       // Write to Firestore immediately for real-time sync
       await updateFirestoreImmediately(updatedRooms);
         console.log(`✅ PDF upload synced to Firestore - ${validExistingRooms.length} rooms updated`);
@@ -690,6 +724,14 @@ const Dashboard = () => {
       // Update local state
       setRooms(clearedRooms);
       
+      // Clear report counts
+      setDepartureRoomCount(0);
+      setInhouseRoomCount(0);
+      await setDoc(doc(db, "reports", "counts"), {
+        departureRoomCount: 0,
+        inhouseRoomCount: 0,
+      }, { merge: true });
+
       // Write rooms to Firestore immediately for real-time sync
       await updateFirestoreImmediately(clearedRooms);
       console.log("✅ Clear rooms data synced to Firestore");
@@ -1076,24 +1118,12 @@ const Dashboard = () => {
       <div className="flex items-center gap-4 mb-6 text-sm">
         <span className="font-semibold text-[#15803D]">สรุปจำนวนห้องที่รอเข้าทำ (วันนี้):</span>
         {(() => {
-          // Calculate directly from room status (no report storage)
-          // Departure rooms = rooms with status "will_depart_today" (yellow)
-          const departureCount = rooms
-            .filter(r => r.status === "will_depart_today")
-            .reduce((sum, room) => {
-              const isSuite = room.type.toUpperCase().startsWith("S");
-              return sum + (isSuite ? 2 : 1);
-          }, 0);
+          // Use counts from PDF uploads
+          // ห้องออกวันนี้ = number of rooms from expected departure PDF (column 1)
+          const departureCount = departureRoomCount;
 
-          // In-house rooms = rooms with status "stay_clean" (blue)
-          // Exclude protected long stay rooms (206, 207, 503, 608, 609) from count
-          const protectedRooms = ["206", "207", "503", "608", "609"];
-          const inhouseCount = rooms
-            .filter(r => r.status === "stay_clean" && !protectedRooms.includes(String(r.number)))
-            .reduce((sum, room) => {
-              const isSuite = room.type.toUpperCase().startsWith("S");
-              return sum + (isSuite ? 2 : 1);
-          }, 0);
+          // ห้องพักต่อ = number of rooms from in-house PDF (column 1) - number of rooms from expected departure PDF (column 1)
+          const inhouseCount = Math.max(0, inhouseRoomCount - departureRoomCount);
 
           const total = departureCount + inhouseCount;
 
