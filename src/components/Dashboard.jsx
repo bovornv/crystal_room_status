@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import RoomCard from "./RoomCard";
 import * as pdfjsLib from "pdfjs-dist";
 import { db } from "../services/firebase";
-import { collection, doc, getDoc, setDoc, onSnapshot } from "firebase/firestore";
+import { collection, doc, getDoc, setDoc, onSnapshot, serverTimestamp } from "firebase/firestore";
 
 // Configure PDF.js worker for Vite
 if (typeof window !== 'undefined' && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
@@ -60,6 +60,7 @@ const Dashboard = () => {
   const [teamNotes, setTeamNotes] = useState("");
   const isSavingNotes = useRef(false);
   const notesTextareaRef = useRef(null);
+  const [commonAreas, setCommonAreas] = useState([]);
   
   // Update time every minute
   useEffect(() => {
@@ -84,7 +85,7 @@ const Dashboard = () => {
   // Check if user is logged in from localStorage on mount and verify logout status
   useEffect(() => {
     const checkLoginStatus = () => {
-      const storedNickname = localStorage.getItem('crystal_nickname');
+      const storedNickname = localStorage.getItem('nickname') || localStorage.getItem('crystal_nickname');
       const loginTimestamp = localStorage.getItem('crystal_login_timestamp');
       const logoutTimestamp = localStorage.getItem('crystal_logout_timestamp');
       
@@ -96,6 +97,7 @@ const Dashboard = () => {
         // If logout happened after login, user is logged out
         if (logoutTime > loginTime) {
           localStorage.removeItem('crystal_nickname');
+          localStorage.removeItem('nickname');
           localStorage.removeItem('crystal_login_timestamp');
           setIsLoggedIn(false);
           setNickname("");
@@ -149,6 +151,23 @@ const Dashboard = () => {
       if (storedNotes) {
         setTeamNotes(storedNotes);
       }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Load common areas from Firestore and set up real-time listener
+  useEffect(() => {
+    const commonAreasCollection = collection(db, "commonAreas");
+    
+    const unsubscribe = onSnapshot(commonAreasCollection, (snapshot) => {
+      const areas = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setCommonAreas(areas);
+    }, (error) => {
+      console.error("Error listening to common areas:", error);
     });
 
     return () => unsubscribe();
@@ -734,6 +753,47 @@ const Dashboard = () => {
         </div>
       )}
 
+      {/* Nickname Input - Top of Dashboard */}
+      <div className="mb-3 flex items-center gap-2">
+        <input
+          type="text"
+          value={nickname}
+          onChange={(e) => {
+            setNickname(e.target.value);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              const trimmedNickname = nickname.trim();
+              if (trimmedNickname) {
+                setNickname(trimmedNickname);
+                setIsLoggedIn(true);
+                localStorage.setItem('nickname', trimmedNickname);
+                localStorage.setItem('crystal_nickname', trimmedNickname);
+              }
+            }
+          }}
+          placeholder="กรอกชื่อเล่นหรือ FO"
+          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#15803D]"
+        />
+        {nickname.trim() && (
+          <button
+            onClick={() => {
+              const trimmedNickname = nickname.trim();
+              if (trimmedNickname) {
+                setNickname(trimmedNickname);
+                setIsLoggedIn(true);
+                localStorage.setItem('nickname', trimmedNickname);
+                localStorage.setItem('crystal_nickname', trimmedNickname);
+              }
+            }}
+            className="px-4 py-2 bg-[#15803D] text-white rounded-lg hover:bg-[#166534] transition-colors text-sm font-medium"
+          >
+            บันทึก
+          </button>
+        )}
+      </div>
+
       {/* Header */}
       <div className="text-center mb-6 relative">
         {/* Login/User Pill Button - Top Right */}
@@ -788,69 +848,20 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* Team Notes Text Box - Login Required */}
-      {isLoggedIn ? (
-        <div className="mb-3 sm:mb-6">
-          <label className="block text-sm sm:text-lg font-bold text-[#15803D] mb-1 sm:mb-2">
+      {/* Team Notes Text Box - Compact, visible to all */}
+      <div className="mb-2">
+        <div className="flex items-center gap-2 mb-1">
+          <label className="text-xs sm:text-sm font-bold text-[#15803D]">
             📝 ข้อความสำคัญ (วันนี้)
           </label>
-          <div className="flex flex-col sm:flex-row gap-1 sm:gap-2">
-            <textarea
-              ref={notesTextareaRef}
-              value={teamNotes}
-              onChange={(e) => {
-                // Add bullet point if line doesn't start with one
-                const lines = e.target.value.split('\n');
-                const newValue = lines.map(line => {
-                  if (line.trim() && !line.trim().startsWith('•')) {
-                    return '• ' + line.trim();
-                  }
-                  return line;
-                }).join('\n');
-                setTeamNotes(newValue);
-              }}
-              onKeyDown={(e) => {
-                // Auto-add bullet on new line
-                if (e.key === 'Enter') {
-                  const textarea = e.target;
-                  const start = textarea.selectionStart;
-                  const end = textarea.selectionEnd;
-                  const value = textarea.value;
-                  const before = value.substring(0, start);
-                  const after = value.substring(end);
-                  
-                  // Check if current line has bullet
-                  const lineStart = before.lastIndexOf('\n') + 1;
-                  const currentLine = before.substring(lineStart);
-                  
-                  // If current line is not empty and doesn't have bullet, add it
-                  if (currentLine.trim() && !currentLine.trim().startsWith('•')) {
-                    e.preventDefault();
-                    const newValue = before + '• ' + after;
-                    setTeamNotes(newValue);
-                    setTimeout(() => {
-                      textarea.selectionStart = textarea.selectionEnd = start + 2;
-                    }, 0);
-                  }
-                }
-              }}
-              placeholder="ใส่ข้อความสำคัญในนี้"
-              className={`w-full sm:flex-1 p-2 sm:p-4 text-sm sm:text-base bg-white border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#15803D] resize-y placeholder:text-gray-400 ${
-                teamNotes.trim() 
-                  ? 'font-bold text-black min-h-[60px] sm:min-h-[120px]' 
-                  : 'font-normal text-gray-400 h-[50px] sm:h-[60px]'
-              }`}
-              style={{ 
-                lineHeight: '1.5',
-              }}
-            />
+          {isLoggedIn && (
             <button
               onClick={async (e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 
                 if (isSavingNotes.current) {
-                  return; // Prevent double-save
+                  return;
                 }
                 
                 try {
@@ -858,16 +869,14 @@ const Dashboard = () => {
                   const notesDoc = doc(db, "notes", "today");
                   await setDoc(notesDoc, { 
                     text: teamNotes,
-                    lastUpdated: new Date().toISOString()
+                    lastUpdated: serverTimestamp()
                   }, { merge: true });
                   console.log("✅ Team notes saved to Firestore");
                   
-                  // Brief delay to allow Firestore to process, then reset flag
                   setTimeout(() => {
                     isSavingNotes.current = false;
                   }, 500);
                   
-                  // Show brief success feedback
                   alert("✅ บันทึกเรียบร้อย");
                 } catch (error) {
                   console.error("Error saving team notes:", error);
@@ -876,19 +885,42 @@ const Dashboard = () => {
                 }
               }}
               type="button"
-              className="px-3 py-2 sm:px-6 sm:py-3 bg-[#15803D] text-white rounded-lg hover:bg-[#166534] transition-colors text-sm sm:text-lg font-semibold whitespace-nowrap self-start sm:self-start"
+              className="px-2 py-1 bg-[#15803D] text-white rounded text-xs font-semibold hover:bg-[#166534] transition-colors"
             >
               บันทึก
             </button>
+          )}
+        </div>
+        {teamNotes.trim() || isLoggedIn ? (
+          <textarea
+            ref={notesTextareaRef}
+            value={teamNotes}
+            onChange={(e) => {
+              if (isLoggedIn) {
+                setTeamNotes(e.target.value);
+              }
+            }}
+            readOnly={!isLoggedIn}
+            placeholder={isLoggedIn ? "" : "ข้อความสำคัญวันนี้"}
+            className={`w-full p-2 text-xs sm:text-sm bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#15803D] resize-none ${
+              teamNotes.trim() 
+                ? 'text-black' 
+                : isLoggedIn 
+                  ? 'text-gray-500' 
+                  : 'text-gray-400'
+            }`}
+            style={{ 
+              minHeight: '40px',
+              maxHeight: '60px',
+              lineHeight: '1.4',
+            }}
+          />
+        ) : (
+          <div className="w-full p-2 text-xs sm:text-sm bg-white border border-gray-300 rounded-lg text-gray-400 min-h-[40px] flex items-center">
+            ข้อความสำคัญวันนี้
           </div>
-        </div>
-      ) : (
-        <div className="mb-3 sm:mb-6 p-2 sm:p-4 bg-gray-100 border-2 border-gray-300 rounded-lg text-center">
-          <p className="text-xs sm:text-base text-gray-600 font-medium">
-            📝 ข้อความสำคัญ (วันนี้) - กรุณาเข้าสู่ระบบเพื่อแก้ไข
-          </p>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Upload Buttons - Only visible to FO */}
       {nickname === "FO" && (
@@ -1074,6 +1106,352 @@ const Dashboard = () => {
             )}
           </tbody>
         </table>
+      </div>
+
+      {/* ส่วนกลาง (Common Areas) */}
+      <div className="mt-6 bg-white rounded-2xl p-4 shadow-md max-w-4xl mx-auto">
+        <h3 className="font-semibold text-center text-[#15803D] mb-4">
+          ส่วนกลาง
+        </h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs sm:text-sm">
+            <thead>
+              <tr className="border-b">
+                <th className="text-left p-2">พื้นที่</th>
+                <th className="text-center p-2">เช้า</th>
+                <th className="text-center p-2">บ่าย</th>
+              </tr>
+            </thead>
+            <tbody>
+              {/* ล็อบบี้ */}
+              <tr>
+                <td className="p-2 font-medium">ล็อบบี้</td>
+                <td className="p-2">
+                  {(() => {
+                    const areaData = commonAreas.find(a => a.id === "lobby-morning");
+                    const status = areaData?.status || "waiting";
+                    const maidName = areaData?.maid || "";
+                    return (
+                      <button
+                        onClick={async () => {
+                          if (nickname === "FO" || !nickname) return;
+                          const docId = "lobby-morning";
+                          const newStatus = status === "waiting" ? "cleaned" : "waiting";
+                          await setDoc(doc(db, "commonAreas", docId), {
+                            area: "ล็อบบี้",
+                            time: "เช้า",
+                            status: newStatus,
+                            maid: newStatus === "cleaned" ? nickname : ""
+                          }, { merge: true });
+                        }}
+                        disabled={nickname === "FO" || !nickname}
+                        className={`w-full py-2 px-2 rounded text-xs sm:text-sm font-medium ${
+                          status === "cleaned" 
+                            ? "bg-green-200 text-black" 
+                            : "bg-red-300 text-white"
+                        } ${nickname === "FO" || !nickname ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:opacity-80"}`}
+                      >
+                        {status === "cleaned" ? "สะอาดแล้ว" : "รอคนดูแล"}
+                        {status === "cleaned" && maidName && (
+                          <div className="text-xs mt-1">โดย: {maidName}</div>
+                        )}
+                      </button>
+                    );
+                  })()}
+                </td>
+                <td className="p-2">
+                  {(() => {
+                    const areaData = commonAreas.find(a => a.id === "lobby-afternoon");
+                    const status = areaData?.status || "waiting";
+                    const maidName = areaData?.maid || "";
+                    return (
+                      <button
+                        onClick={async () => {
+                          if (nickname === "FO" || !nickname) return;
+                          const docId = "lobby-afternoon";
+                          const newStatus = status === "waiting" ? "cleaned" : "waiting";
+                          await setDoc(doc(db, "commonAreas", docId), {
+                            area: "ล็อบบี้",
+                            time: "บ่าย",
+                            status: newStatus,
+                            maid: newStatus === "cleaned" ? nickname : ""
+                          }, { merge: true });
+                        }}
+                        disabled={nickname === "FO" || !nickname}
+                        className={`w-full py-2 px-2 rounded text-xs sm:text-sm font-medium ${
+                          status === "cleaned" 
+                            ? "bg-green-200 text-black" 
+                            : "bg-red-300 text-white"
+                        } ${nickname === "FO" || !nickname ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:opacity-80"}`}
+                      >
+                        {status === "cleaned" ? "สะอาดแล้ว" : "รอคนดูแล"}
+                        {status === "cleaned" && maidName && (
+                          <div className="text-xs mt-1">โดย: {maidName}</div>
+                        )}
+                      </button>
+                    );
+                  })()}
+                </td>
+              </tr>
+              {/* ห้องน้ำคาเฟ่ */}
+              <tr>
+                <td className="p-2 font-medium">ห้องน้ำคาเฟ่</td>
+                <td className="p-2">
+                  {(() => {
+                    const areaData = commonAreas.find(a => a.id === "toilet-cafe-morning");
+                    const status = areaData?.status || "waiting";
+                    const maidName = areaData?.maid || "";
+                    return (
+                      <button
+                        onClick={async () => {
+                          if (nickname === "FO" || !nickname) return;
+                          const docId = "toilet-cafe-morning";
+                          const newStatus = status === "waiting" ? "cleaned" : "waiting";
+                          await setDoc(doc(db, "commonAreas", docId), {
+                            area: "ห้องน้ำคาเฟ่",
+                            time: "เช้า",
+                            status: newStatus,
+                            maid: newStatus === "cleaned" ? nickname : ""
+                          }, { merge: true });
+                        }}
+                        disabled={nickname === "FO" || !nickname}
+                        className={`w-full py-2 px-2 rounded text-xs sm:text-sm font-medium ${
+                          status === "cleaned" 
+                            ? "bg-green-200 text-black" 
+                            : "bg-red-300 text-white"
+                        } ${nickname === "FO" || !nickname ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:opacity-80"}`}
+                      >
+                        {status === "cleaned" ? "สะอาดแล้ว" : "รอคนดูแล"}
+                        {status === "cleaned" && maidName && (
+                          <div className="text-xs mt-1">โดย: {maidName}</div>
+                        )}
+                      </button>
+                    );
+                  })()}
+                </td>
+                <td className="p-2">
+                  {(() => {
+                    const areaData = commonAreas.find(a => a.id === "toilet-cafe-afternoon");
+                    const status = areaData?.status || "waiting";
+                    const maidName = areaData?.maid || "";
+                    return (
+                      <button
+                        onClick={async () => {
+                          if (nickname === "FO" || !nickname) return;
+                          const docId = "toilet-cafe-afternoon";
+                          const newStatus = status === "waiting" ? "cleaned" : "waiting";
+                          await setDoc(doc(db, "commonAreas", docId), {
+                            area: "ห้องน้ำคาเฟ่",
+                            time: "บ่าย",
+                            status: newStatus,
+                            maid: newStatus === "cleaned" ? nickname : ""
+                          }, { merge: true });
+                        }}
+                        disabled={nickname === "FO" || !nickname}
+                        className={`w-full py-2 px-2 rounded text-xs sm:text-sm font-medium ${
+                          status === "cleaned" 
+                            ? "bg-green-200 text-black" 
+                            : "bg-red-300 text-white"
+                        } ${nickname === "FO" || !nickname ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:opacity-80"}`}
+                      >
+                        {status === "cleaned" ? "สะอาดแล้ว" : "รอคนดูแล"}
+                        {status === "cleaned" && maidName && (
+                          <div className="text-xs mt-1">โดย: {maidName}</div>
+                        )}
+                      </button>
+                    );
+                  })()}
+                </td>
+              </tr>
+              {/* ลิฟต์ */}
+              <tr>
+                <td className="p-2 font-medium">ลิฟต์</td>
+                <td className="p-2">
+                  {(() => {
+                    const areaData = commonAreas.find(a => a.id === "lift-morning");
+                    const status = areaData?.status || "waiting";
+                    const maidName = areaData?.maid || "";
+                    return (
+                      <button
+                        onClick={async () => {
+                          if (nickname === "FO" || !nickname) return;
+                          const docId = "lift-morning";
+                          const newStatus = status === "waiting" ? "cleaned" : "waiting";
+                          await setDoc(doc(db, "commonAreas", docId), {
+                            area: "ลิฟต์",
+                            time: "เช้า",
+                            status: newStatus,
+                            maid: newStatus === "cleaned" ? nickname : ""
+                          }, { merge: true });
+                        }}
+                        disabled={nickname === "FO" || !nickname}
+                        className={`w-full py-2 px-2 rounded text-xs sm:text-sm font-medium ${
+                          status === "cleaned" 
+                            ? "bg-green-200 text-black" 
+                            : "bg-red-300 text-white"
+                        } ${nickname === "FO" || !nickname ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:opacity-80"}`}
+                      >
+                        {status === "cleaned" ? "สะอาดแล้ว" : "รอคนดูแล"}
+                        {status === "cleaned" && maidName && (
+                          <div className="text-xs mt-1">โดย: {maidName}</div>
+                        )}
+                      </button>
+                    );
+                  })()}
+                </td>
+                <td className="p-2">
+                  {(() => {
+                    const areaData = commonAreas.find(a => a.id === "lift-afternoon");
+                    const status = areaData?.status || "waiting";
+                    const maidName = areaData?.maid || "";
+                    return (
+                      <button
+                        onClick={async () => {
+                          if (nickname === "FO" || !nickname) return;
+                          const docId = "lift-afternoon";
+                          const newStatus = status === "waiting" ? "cleaned" : "waiting";
+                          await setDoc(doc(db, "commonAreas", docId), {
+                            area: "ลิฟต์",
+                            time: "บ่าย",
+                            status: newStatus,
+                            maid: newStatus === "cleaned" ? nickname : ""
+                          }, { merge: true });
+                        }}
+                        disabled={nickname === "FO" || !nickname}
+                        className={`w-full py-2 px-2 rounded text-xs sm:text-sm font-medium ${
+                          status === "cleaned" 
+                            ? "bg-green-200 text-black" 
+                            : "bg-red-300 text-white"
+                        } ${nickname === "FO" || !nickname ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:opacity-80"}`}
+                      >
+                        {status === "cleaned" ? "สะอาดแล้ว" : "รอคนดูแล"}
+                        {status === "cleaned" && maidName && (
+                          <div className="text-xs mt-1">โดย: {maidName}</div>
+                        )}
+                      </button>
+                    );
+                  })()}
+                </td>
+              </tr>
+              {/* ห้องทานข้าว - บ่าย only */}
+              <tr>
+                <td className="p-2 font-medium">ห้องทานข้าว</td>
+                <td className="p-2">—</td>
+                <td className="p-2">
+                  {(() => {
+                    const areaData = commonAreas.find(a => a.id === "dining-room-afternoon");
+                    const status = areaData?.status || "waiting";
+                    const maidName = areaData?.maid || "";
+                    return (
+                      <button
+                        onClick={async () => {
+                          if (nickname === "FO" || !nickname) return;
+                          const docId = "dining-room-afternoon";
+                          const newStatus = status === "waiting" ? "cleaned" : "waiting";
+                          await setDoc(doc(db, "commonAreas", docId), {
+                            area: "ห้องทานข้าว",
+                            time: "บ่าย",
+                            status: newStatus,
+                            maid: newStatus === "cleaned" ? nickname : ""
+                          }, { merge: true });
+                        }}
+                        disabled={nickname === "FO" || !nickname}
+                        className={`w-full py-2 px-2 rounded text-xs sm:text-sm font-medium ${
+                          status === "cleaned" 
+                            ? "bg-green-200 text-black" 
+                            : "bg-red-300 text-white"
+                        } ${nickname === "FO" || !nickname ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:opacity-80"}`}
+                      >
+                        {status === "cleaned" ? "สะอาดแล้ว" : "รอคนดูแล"}
+                        {status === "cleaned" && maidName && (
+                          <div className="text-xs mt-1">โดย: {maidName}</div>
+                        )}
+                      </button>
+                    );
+                  })()}
+                </td>
+              </tr>
+              {/* ห้องผ้าสต็อค - บ่าย only */}
+              <tr>
+                <td className="p-2 font-medium">ห้องผ้าสต็อค</td>
+                <td className="p-2">—</td>
+                <td className="p-2">
+                  {(() => {
+                    const areaData = commonAreas.find(a => a.id === "linen-stock-afternoon");
+                    const status = areaData?.status || "waiting";
+                    const maidName = areaData?.maid || "";
+                    return (
+                      <button
+                        onClick={async () => {
+                          if (nickname === "FO" || !nickname) return;
+                          const docId = "linen-stock-afternoon";
+                          const newStatus = status === "waiting" ? "cleaned" : "waiting";
+                          await setDoc(doc(db, "commonAreas", docId), {
+                            area: "ห้องผ้าสต็อค",
+                            time: "บ่าย",
+                            status: newStatus,
+                            maid: newStatus === "cleaned" ? nickname : ""
+                          }, { merge: true });
+                        }}
+                        disabled={nickname === "FO" || !nickname}
+                        className={`w-full py-2 px-2 rounded text-xs sm:text-sm font-medium ${
+                          status === "cleaned" 
+                            ? "bg-green-200 text-black" 
+                            : "bg-red-300 text-white"
+                        } ${nickname === "FO" || !nickname ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:opacity-80"}`}
+                      >
+                        {status === "cleaned" ? "สะอาดแล้ว" : "รอคนดูแล"}
+                        {status === "cleaned" && maidName && (
+                          <div className="text-xs mt-1">โดย: {maidName}</div>
+                        )}
+                      </button>
+                    );
+                  })()}
+                </td>
+              </tr>
+              {/* ทางเดินชั้น 1-6 - บ่าย only */}
+              {[1, 2, 3, 4, 5, 6].map(floor => (
+                <tr key={floor}>
+                  <td className="p-2 font-medium">ทางเดินชั้น {floor}</td>
+                  <td className="p-2">—</td>
+                  <td className="p-2">
+                    {(() => {
+                      const areaData = commonAreas.find(a => a.id === `hall-${floor}-afternoon`);
+                      const status = areaData?.status || "waiting";
+                      const maidName = areaData?.maid || "";
+                      return (
+                        <button
+                          onClick={async () => {
+                            if (nickname === "FO" || !nickname) return;
+                            const docId = `hall-${floor}-afternoon`;
+                            const newStatus = status === "waiting" ? "cleaned" : "waiting";
+                            await setDoc(doc(db, "commonAreas", docId), {
+                              area: `ทางเดินชั้น ${floor}`,
+                              time: "บ่าย",
+                              status: newStatus,
+                              maid: newStatus === "cleaned" ? nickname : ""
+                            }, { merge: true });
+                          }}
+                          disabled={nickname === "FO" || !nickname}
+                          className={`w-full py-2 px-2 rounded text-xs sm:text-sm font-medium ${
+                            status === "cleaned" 
+                              ? "bg-green-200 text-black" 
+                              : "bg-red-300 text-white"
+                          } ${nickname === "FO" || !nickname ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:opacity-80"}`}
+                        >
+                          {status === "cleaned" ? "สะอาดแล้ว" : "รอคนดูแล"}
+                          {status === "cleaned" && maidName && (
+                            <div className="text-xs mt-1">โดย: {maidName}</div>
+                          )}
+                        </button>
+                      );
+                    })()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Color Legend */}
