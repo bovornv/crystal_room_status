@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import RoomCard from "./RoomCard";
+import CommonAreaCard from "./CommonAreaCard";
 import * as pdfjsLib from "pdfjs-dist";
 import { db } from "../services/firebase";
 import { collection, doc, getDoc, setDoc, onSnapshot, serverTimestamp } from "firebase/firestore";
@@ -1127,216 +1128,66 @@ const Dashboard = () => {
               <tr>
                 <td className="p-2 font-medium text-base sm:text-lg">ล็อบบี้</td>
                 <td className="p-2">
-                  {(() => {
-                    const areaData = commonAreas.find(a => a.id === "lobby-morning");
-                    const status = areaData?.status || "waiting";
-                    const maidName = areaData?.maid || "";
-                    const isDisabled = nickname === "FO" || !nickname || !nickname.trim();
-                    return (
-                      <button
-                        onClick={async () => {
-                          if (nickname === "FO" || !nickname || !nickname.trim()) return;
-                          const docId = "lobby-morning";
-                          const newStatus = status === "waiting" ? "cleaned" : "waiting";
-                          await setDoc(doc(db, "commonAreas", docId), {
-                            area: "ล็อบบี้",
-                            time: "เช้า",
-                            status: newStatus,
-                            maid: newStatus === "cleaned" ? nickname.trim() : ""
-                          }, { merge: true });
-                        }}
-                        disabled={isDisabled}
-                        className={`w-full py-3 px-3 rounded-lg text-base sm:text-lg font-semibold ${
-                          status === "cleaned" 
-                            ? "bg-green-200 text-black" 
-                            : "bg-red-300 text-black"
-                        } ${isDisabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:opacity-90 active:scale-95 transition-all"}`}
-                      >
-                        {status === "cleaned" ? "สะอาดแล้ว" : "รอคนดูแล"}
-                        {status === "cleaned" && maidName && (
-                          <div className="text-sm mt-1 font-normal">โดย: {maidName}</div>
-                        )}
-                      </button>
-                    );
-                  })()}
+                  <CommonAreaCard
+                    area="ล็อบบี้"
+                    time="เช้า"
+                    data={commonAreas.find(a => a.id === "lobby-morning")}
+                    nickname={nickname}
+                    isFO={nickname === "FO"}
+                  />
                 </td>
                 <td className="p-2">
-                  {(() => {
-                    const areaData = commonAreas.find(a => a.id === "lobby-afternoon");
-                    const status = areaData?.status || "waiting";
-                    const maidName = areaData?.maid || "";
-                    const isDisabled = nickname === "FO" || !nickname || !nickname.trim();
-                    return (
-                      <button
-                        onClick={async () => {
-                          if (nickname === "FO" || !nickname || !nickname.trim()) return;
-                          const docId = "lobby-afternoon";
-                          const newStatus = status === "waiting" ? "cleaned" : "waiting";
-                          await setDoc(doc(db, "commonAreas", docId), {
-                            area: "ล็อบบี้",
-                            time: "บ่าย",
-                            status: newStatus,
-                            maid: newStatus === "cleaned" ? nickname.trim() : ""
-                          }, { merge: true });
-                        }}
-                        disabled={isDisabled}
-                        className={`w-full py-3 px-3 rounded-lg text-base sm:text-lg font-semibold ${
-                          status === "cleaned" 
-                            ? "bg-green-200 text-black" 
-                            : "bg-red-300 text-black"
-                        } ${isDisabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:opacity-90 active:scale-95 transition-all"}`}
-                      >
-                        {status === "cleaned" ? "สะอาดแล้ว" : "รอคนดูแล"}
-                        {status === "cleaned" && maidName && (
-                          <div className="text-sm mt-1 font-normal">โดย: {maidName}</div>
-                        )}
-                      </button>
-                    );
-                  })()}
+                  <CommonAreaCard
+                    area="ล็อบบี้"
+                    time="บ่าย"
+                    data={commonAreas.find(a => a.id === "lobby-afternoon")}
+                    nickname={nickname}
+                    isFO={nickname === "FO"}
+                  />
                 </td>
               </tr>
-              {/* ห้องน้ำคาเฟ่ */}
+              {/* ห้องน้ำสวน */}
               <tr>
-                <td className="p-2 font-medium text-base sm:text-lg">ห้องน้ำคาเฟ่</td>
+                <td className="p-2 font-medium text-base sm:text-lg">ห้องน้ำสวน</td>
                 <td className="p-2">
-                  {(() => {
-                    const areaData = commonAreas.find(a => a.id === "toilet-cafe-morning");
-                    const status = areaData?.status || "waiting";
-                    const maidName = areaData?.maid || "";
-                    const isDisabled = nickname === "FO" || !nickname || !nickname.trim();
-                    return (
-                      <button
-                        onClick={async () => {
-                          if (nickname === "FO" || !nickname || !nickname.trim()) return;
-                          const docId = "toilet-cafe-morning";
-                          const newStatus = status === "waiting" ? "cleaned" : "waiting";
-                          await setDoc(doc(db, "commonAreas", docId), {
-                            area: "ห้องน้ำคาเฟ่",
-                            time: "เช้า",
-                            status: newStatus,
-                            maid: newStatus === "cleaned" ? nickname.trim() : ""
-                          }, { merge: true });
-                        }}
-                        disabled={isDisabled}
-                        className={`w-full py-3 px-3 rounded-lg text-base sm:text-lg font-semibold ${
-                          status === "cleaned" 
-                            ? "bg-green-200 text-black" 
-                            : "bg-red-300 text-black"
-                        } ${isDisabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:opacity-90 active:scale-95 transition-all"}`}
-                      >
-                        {status === "cleaned" ? "สะอาดแล้ว" : "รอคนดูแล"}
-                        {status === "cleaned" && maidName && (
-                          <div className="text-sm mt-1 font-normal">โดย: {maidName}</div>
-                        )}
-                      </button>
-                    );
-                  })()}
+                  <CommonAreaCard
+                    area="ห้องน้ำสวน"
+                    time="เช้า"
+                    data={commonAreas.find(a => a.id === "toilet-cafe-morning")}
+                    nickname={nickname}
+                    isFO={nickname === "FO"}
+                  />
                 </td>
                 <td className="p-2">
-                  {(() => {
-                    const areaData = commonAreas.find(a => a.id === "toilet-cafe-afternoon");
-                    const status = areaData?.status || "waiting";
-                    const maidName = areaData?.maid || "";
-                    const isDisabled = nickname === "FO" || !nickname || !nickname.trim();
-                    return (
-                      <button
-                        onClick={async () => {
-                          if (nickname === "FO" || !nickname || !nickname.trim()) return;
-                          const docId = "toilet-cafe-afternoon";
-                          const newStatus = status === "waiting" ? "cleaned" : "waiting";
-                          await setDoc(doc(db, "commonAreas", docId), {
-                            area: "ห้องน้ำคาเฟ่",
-                            time: "บ่าย",
-                            status: newStatus,
-                            maid: newStatus === "cleaned" ? nickname.trim() : ""
-                          }, { merge: true });
-                        }}
-                        disabled={isDisabled}
-                        className={`w-full py-3 px-3 rounded-lg text-base sm:text-lg font-semibold ${
-                          status === "cleaned" 
-                            ? "bg-green-200 text-black" 
-                            : "bg-red-300 text-black"
-                        } ${isDisabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:opacity-90 active:scale-95 transition-all"}`}
-                      >
-                        {status === "cleaned" ? "สะอาดแล้ว" : "รอคนดูแล"}
-                        {status === "cleaned" && maidName && (
-                          <div className="text-sm mt-1 font-normal">โดย: {maidName}</div>
-                        )}
-                      </button>
-                    );
-                  })()}
+                  <CommonAreaCard
+                    area="ห้องน้ำสวน"
+                    time="บ่าย"
+                    data={commonAreas.find(a => a.id === "toilet-cafe-afternoon")}
+                    nickname={nickname}
+                    isFO={nickname === "FO"}
+                  />
                 </td>
               </tr>
               {/* ลิฟต์ */}
               <tr>
                 <td className="p-2 font-medium text-base sm:text-lg">ลิฟต์</td>
                 <td className="p-2">
-                  {(() => {
-                    const areaData = commonAreas.find(a => a.id === "lift-morning");
-                    const status = areaData?.status || "waiting";
-                    const maidName = areaData?.maid || "";
-                    const isDisabled = nickname === "FO" || !nickname || !nickname.trim();
-                    return (
-                      <button
-                        onClick={async () => {
-                          if (nickname === "FO" || !nickname || !nickname.trim()) return;
-                          const docId = "lift-morning";
-                          const newStatus = status === "waiting" ? "cleaned" : "waiting";
-                          await setDoc(doc(db, "commonAreas", docId), {
-                            area: "ลิฟต์",
-                            time: "เช้า",
-                            status: newStatus,
-                            maid: newStatus === "cleaned" ? nickname.trim() : ""
-                          }, { merge: true });
-                        }}
-                        disabled={isDisabled}
-                        className={`w-full py-3 px-3 rounded-lg text-base sm:text-lg font-semibold ${
-                          status === "cleaned" 
-                            ? "bg-green-200 text-black" 
-                            : "bg-red-300 text-black"
-                        } ${isDisabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:opacity-90 active:scale-95 transition-all"}`}
-                      >
-                        {status === "cleaned" ? "สะอาดแล้ว" : "รอคนดูแล"}
-                        {status === "cleaned" && maidName && (
-                          <div className="text-sm mt-1 font-normal">โดย: {maidName}</div>
-                        )}
-                      </button>
-                    );
-                  })()}
+                  <CommonAreaCard
+                    area="ลิฟต์"
+                    time="เช้า"
+                    data={commonAreas.find(a => a.id === "lift-morning")}
+                    nickname={nickname}
+                    isFO={nickname === "FO"}
+                  />
                 </td>
                 <td className="p-2">
-                  {(() => {
-                    const areaData = commonAreas.find(a => a.id === "lift-afternoon");
-                    const status = areaData?.status || "waiting";
-                    const maidName = areaData?.maid || "";
-                    const isDisabled = nickname === "FO" || !nickname || !nickname.trim();
-                    return (
-                      <button
-                        onClick={async () => {
-                          if (nickname === "FO" || !nickname || !nickname.trim()) return;
-                          const docId = "lift-afternoon";
-                          const newStatus = status === "waiting" ? "cleaned" : "waiting";
-                          await setDoc(doc(db, "commonAreas", docId), {
-                            area: "ลิฟต์",
-                            time: "บ่าย",
-                            status: newStatus,
-                            maid: newStatus === "cleaned" ? nickname.trim() : ""
-                          }, { merge: true });
-                        }}
-                        disabled={isDisabled}
-                        className={`w-full py-3 px-3 rounded-lg text-base sm:text-lg font-semibold ${
-                          status === "cleaned" 
-                            ? "bg-green-200 text-black" 
-                            : "bg-red-300 text-black"
-                        } ${isDisabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:opacity-90 active:scale-95 transition-all"}`}
-                      >
-                        {status === "cleaned" ? "สะอาดแล้ว" : "รอคนดูแล"}
-                        {status === "cleaned" && maidName && (
-                          <div className="text-sm mt-1 font-normal">โดย: {maidName}</div>
-                        )}
-                      </button>
-                    );
-                  })()}
+                  <CommonAreaCard
+                    area="ลิฟต์"
+                    time="บ่าย"
+                    data={commonAreas.find(a => a.id === "lift-afternoon")}
+                    nickname={nickname}
+                    isFO={nickname === "FO"}
+                  />
                 </td>
               </tr>
               {/* ห้องทานข้าว - บ่าย only */}
@@ -1344,38 +1195,13 @@ const Dashboard = () => {
                 <td className="p-2 font-medium text-base sm:text-lg">ห้องทานข้าว</td>
                 <td className="p-2">—</td>
                 <td className="p-2">
-                  {(() => {
-                    const areaData = commonAreas.find(a => a.id === "dining-room-afternoon");
-                    const status = areaData?.status || "waiting";
-                    const maidName = areaData?.maid || "";
-                    const isDisabled = nickname === "FO" || !nickname || !nickname.trim();
-                    return (
-                      <button
-                        onClick={async () => {
-                          if (nickname === "FO" || !nickname || !nickname.trim()) return;
-                          const docId = "dining-room-afternoon";
-                          const newStatus = status === "waiting" ? "cleaned" : "waiting";
-                          await setDoc(doc(db, "commonAreas", docId), {
-                            area: "ห้องทานข้าว",
-                            time: "บ่าย",
-                            status: newStatus,
-                            maid: newStatus === "cleaned" ? nickname.trim() : ""
-                          }, { merge: true });
-                        }}
-                        disabled={isDisabled}
-                        className={`w-full py-3 px-3 rounded-lg text-base sm:text-lg font-semibold ${
-                          status === "cleaned" 
-                            ? "bg-green-200 text-black" 
-                            : "bg-red-300 text-black"
-                        } ${isDisabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:opacity-90 active:scale-95 transition-all"}`}
-                      >
-                        {status === "cleaned" ? "สะอาดแล้ว" : "รอคนดูแล"}
-                        {status === "cleaned" && maidName && (
-                          <div className="text-sm mt-1 font-normal">โดย: {maidName}</div>
-                        )}
-                      </button>
-                    );
-                  })()}
+                  <CommonAreaCard
+                    area="ห้องทานข้าว"
+                    time="บ่าย"
+                    data={commonAreas.find(a => a.id === "dining-room-afternoon")}
+                    nickname={nickname}
+                    isFO={nickname === "FO"}
+                  />
                 </td>
               </tr>
               {/* ห้องผ้าสต็อค - บ่าย only */}
@@ -1383,38 +1209,13 @@ const Dashboard = () => {
                 <td className="p-2 font-medium text-base sm:text-lg">ห้องผ้าสต็อค</td>
                 <td className="p-2">—</td>
                 <td className="p-2">
-                  {(() => {
-                    const areaData = commonAreas.find(a => a.id === "linen-stock-afternoon");
-                    const status = areaData?.status || "waiting";
-                    const maidName = areaData?.maid || "";
-                    const isDisabled = nickname === "FO" || !nickname || !nickname.trim();
-                    return (
-                      <button
-                        onClick={async () => {
-                          if (nickname === "FO" || !nickname || !nickname.trim()) return;
-                          const docId = "linen-stock-afternoon";
-                          const newStatus = status === "waiting" ? "cleaned" : "waiting";
-                          await setDoc(doc(db, "commonAreas", docId), {
-                            area: "ห้องผ้าสต็อค",
-                            time: "บ่าย",
-                            status: newStatus,
-                            maid: newStatus === "cleaned" ? nickname.trim() : ""
-                          }, { merge: true });
-                        }}
-                        disabled={isDisabled}
-                        className={`w-full py-3 px-3 rounded-lg text-base sm:text-lg font-semibold ${
-                          status === "cleaned" 
-                            ? "bg-green-200 text-black" 
-                            : "bg-red-300 text-black"
-                        } ${isDisabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:opacity-90 active:scale-95 transition-all"}`}
-                      >
-                        {status === "cleaned" ? "สะอาดแล้ว" : "รอคนดูแล"}
-                        {status === "cleaned" && maidName && (
-                          <div className="text-sm mt-1 font-normal">โดย: {maidName}</div>
-                        )}
-                      </button>
-                    );
-                  })()}
+                  <CommonAreaCard
+                    area="ห้องผ้าสต็อค"
+                    time="บ่าย"
+                    data={commonAreas.find(a => a.id === "linen-stock-afternoon")}
+                    nickname={nickname}
+                    isFO={nickname === "FO"}
+                  />
                 </td>
               </tr>
               {/* ทางเดินชั้น 1-6 - บ่าย only */}
@@ -1423,38 +1224,13 @@ const Dashboard = () => {
                   <td className="p-2 font-medium text-base sm:text-lg">ทางเดินชั้น {floor}</td>
                   <td className="p-2">—</td>
                   <td className="p-2">
-                    {(() => {
-                      const areaData = commonAreas.find(a => a.id === `hall-${floor}-afternoon`);
-                      const status = areaData?.status || "waiting";
-                      const maidName = areaData?.maid || "";
-                      const isDisabled = nickname === "FO" || !nickname || !nickname.trim();
-                      return (
-                        <button
-                          onClick={async () => {
-                            if (nickname === "FO" || !nickname || !nickname.trim()) return;
-                            const docId = `hall-${floor}-afternoon`;
-                            const newStatus = status === "waiting" ? "cleaned" : "waiting";
-                            await setDoc(doc(db, "commonAreas", docId), {
-                              area: `ทางเดินชั้น ${floor}`,
-                              time: "บ่าย",
-                              status: newStatus,
-                              maid: newStatus === "cleaned" ? nickname.trim() : ""
-                            }, { merge: true });
-                          }}
-                          disabled={isDisabled}
-                          className={`w-full py-3 px-3 rounded-lg text-base sm:text-lg font-semibold ${
-                            status === "cleaned" 
-                              ? "bg-green-200 text-black" 
-                              : "bg-red-300 text-black"
-                          } ${isDisabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:opacity-90 active:scale-95 transition-all"}`}
-                        >
-                          {status === "cleaned" ? "สะอาดแล้ว" : "รอคนดูแล"}
-                          {status === "cleaned" && maidName && (
-                            <div className="text-sm mt-1 font-normal">โดย: {maidName}</div>
-                          )}
-                        </button>
-                      );
-                    })()}
+                    <CommonAreaCard
+                      area={`ทางเดินชั้น ${floor}`}
+                      time="บ่าย"
+                      data={commonAreas.find(a => a.id === `hall-${floor}-afternoon`)}
+                      nickname={nickname}
+                      isFO={nickname === "FO"}
+                    />
                   </td>
                 </tr>
               ))}
