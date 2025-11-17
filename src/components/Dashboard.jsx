@@ -851,47 +851,6 @@ const Dashboard = () => {
         </div>
       )}
 
-      {/* Nickname Input - Top of Dashboard */}
-      <div className="mb-3 flex items-center gap-2">
-        <input
-          type="text"
-          value={nickname}
-          onChange={(e) => {
-            setNickname(e.target.value);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              const trimmedNickname = nickname.trim();
-              if (trimmedNickname) {
-                setNickname(trimmedNickname);
-                setIsLoggedIn(true);
-                localStorage.setItem('nickname', trimmedNickname);
-                localStorage.setItem('crystal_nickname', trimmedNickname);
-              }
-            }
-          }}
-          placeholder="กรอกชื่อเล่นหรือ FO"
-          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#15803D]"
-        />
-        {nickname.trim() && (
-          <button
-            onClick={() => {
-              const trimmedNickname = nickname.trim();
-              if (trimmedNickname) {
-                setNickname(trimmedNickname);
-                setIsLoggedIn(true);
-                localStorage.setItem('nickname', trimmedNickname);
-                localStorage.setItem('crystal_nickname', trimmedNickname);
-              }
-            }}
-            className="px-4 py-2 bg-[#15803D] text-white rounded-lg hover:bg-[#166534] transition-colors text-sm font-medium"
-          >
-            บันทึก
-          </button>
-        )}
-      </div>
-
       {/* Header */}
       <div className="text-center mb-6 relative">
         {/* Login/User Pill Button - Top Right */}
