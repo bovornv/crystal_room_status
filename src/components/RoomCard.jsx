@@ -249,7 +249,7 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
                   rows="3"
                   value={remark}
                   onChange={(e) => setRemark(e.target.value)}
-                  className="w-full border-2 border-gray-300 rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#15803D] resize-none"
+                  className="w-full border-2 border-gray-300 rounded-lg p-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-[#15803D] resize-none"
                   placeholder="เพิ่มหมายเหตุ..."
                 />
               </div>
