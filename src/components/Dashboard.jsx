@@ -358,12 +358,17 @@ const Dashboard = () => {
 
   // Helper function to migrate moved_out to checked_out (consolidate statuses)
   // Also ensure all rooms have a border field (default to black if missing)
+  // Also ensure room 316 always has type D5
   const migrateMovedOutToCheckedOut = (roomsArray) => {
     return roomsArray.map(r => {
       const migrated = r.status === "moved_out" ? { ...r, status: "checked_out" } : r;
       // Ensure border field exists (default to black if missing)
       if (!migrated.border) {
         migrated.border = "black";
+      }
+      // Ensure room 316 always has type D5
+      if (String(migrated.number) === "316" && migrated.type !== "D5") {
+        migrated.type = "D5";
       }
       return migrated;
     });
@@ -461,6 +466,23 @@ const Dashboard = () => {
 
     return () => unsubscribe();
   }, []); // Empty dependency array - only run once on mount
+
+  // Fix room 316 type to D5 if it's wrong (migration)
+  useEffect(() => {
+    if (rooms.length === 0) return;
+    
+    const room316 = rooms.find(r => String(r.number) === "316");
+    if (room316 && room316.type !== "D5") {
+      console.log("🔧 Fixing room 316 type from", room316.type, "to D5");
+      const updatedRooms = rooms.map(r => 
+        String(r.number) === "316" ? { ...r, type: "D5" } : r
+      );
+      setRooms(updatedRooms);
+      updateFirestoreImmediately(updatedRooms).catch(err => {
+        console.error("Error fixing room 316 in Firestore:", err);
+      });
+    }
+  }, [rooms.length]); // Run when rooms are loaded
 
   // localStorage is updated by onSnapshot listener above
   // No separate useEffect needed - Firestore is the source of truth
