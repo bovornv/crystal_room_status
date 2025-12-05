@@ -46,7 +46,10 @@ const CommonAreaCard = ({ area, time, data, nickname, isFO }) => {
     ? "bg-green-200 text-black"
     : "bg-red-300 text-black";
 
-  const buttonText = isCleaned ? "สะอาด" : "สกปรก";
+  // Special labels for ห้องผ้าสต็อค
+  const buttonText = area === "ห้องผ้าสต็อค"
+    ? (isCleaned ? "ของครบ" : "ของขาด")
+    : (isCleaned ? "สะอาด" : "สกปรก");
   const borderClass = border === "red" ? "border-2 border-red-600" : "border border-black";
   const isDisabled = isFO || !nickname || !nickname.trim();
 
@@ -196,7 +199,7 @@ const CommonAreaCard = ({ area, time, data, nickname, isFO }) => {
                 className="w-full bg-green-200 hover:bg-green-300 text-black py-4 rounded-lg mb-4 text-lg font-semibold transition-colors"
                 onClick={handleMarkCleaned}
               >
-                สะอาด
+                {area === "ห้องผ้าสต็อค" ? "ของครบ" : "สะอาด"}
               </button>
 
               {/* Bottom buttons */}
