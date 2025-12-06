@@ -462,6 +462,31 @@ const Dashboard = () => {
     return () => unsubscribe();
   }, []); // Empty dependency array - only run once on mount
 
+  // Fix rooms 301 and 316 type to D6 if they're wrong (migration)
+  useEffect(() => {
+    if (rooms.length === 0) return;
+    
+    const room301 = rooms.find(r => String(r.number) === "301");
+    const room316 = rooms.find(r => String(r.number) === "316");
+    const needsUpdate = (room301 && room301.type !== "D6") || (room316 && room316.type !== "D6");
+    
+    if (needsUpdate) {
+      console.log("🔧 Fixing rooms 301 and 316 type to D6");
+      const updatedRooms = rooms.map(r => {
+        if (String(r.number) === "301" && r.type !== "D6") {
+          return { ...r, type: "D6" };
+        }
+        if (String(r.number) === "316" && r.type !== "D6") {
+          return { ...r, type: "D6" };
+        }
+        return r;
+      });
+      setRooms(updatedRooms);
+      updateFirestoreImmediately(updatedRooms).catch(err => {
+        console.error("Error fixing rooms 301 and 316 in Firestore:", err);
+      });
+    }
+  }, [rooms.length]); // Run when rooms are loaded
 
   // localStorage is updated by onSnapshot listener above
   // No separate useEffect needed - Firestore is the source of truth
