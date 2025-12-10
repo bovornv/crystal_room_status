@@ -894,20 +894,23 @@ const Dashboard = () => {
     }
     
     try {
-      // "ลบข้อมูล" logic: Set ALL rooms to white (vacant) with black border
-      // Clear all maid nicknames and lastEditor from ALL rooms
-      // Do not delete remark dot or remark text
+      // "ลบข้อมูล" logic:
+      // - Delete nickname/username below room type (maid field)
+      // - Change red border to black border
+      // - Change color to white (vacant)
+      // - Delete nicknames/usernames on every room card regardless of status
+      // - Do NOT delete remark box info
       const clearedRooms = rooms.map(r => {
         return {
           ...r,
           status: "vacant", // ALL rooms become white (vacant)
-          maid: "", // Clear maid nickname from ALL rooms
-          lastEditor: "", // Clear lastEditor from ALL rooms
-          selectedBy: "",
-          cleanedBy: "",
+          maid: "", // Clear maid nickname/username below room type
+          lastEditor: "", // Clear lastEditor
+          selectedBy: "", // Clear selectedBy
+          cleanedBy: "", // Clear cleanedBy
           cleanedToday: false,
-          border: "black", // ALL rooms get black border
-          remark: r.remark || "", // Preserve remark - do not delete
+          border: "black", // Change red border to black border (all borders become black)
+          remark: r.remark || "", // Preserve remark - do NOT delete remark box info
           vacantSince: new Date().toISOString() // Initialize vacantSince when clearing
         };
       });
@@ -956,11 +959,14 @@ const Dashboard = () => {
         });
         
         try {
-          // Explicitly set all fields to reset state
+          // "ลบข้อมูล" logic for common areas:
+          // - Delete maid's nickname
+          // - Change green background to red (status: "waiting" shows red)
+          // - Change border to black
           const updateData = {
-            status: "waiting", // Reset to red (รอทำ)
-            maid: "", // Clear maid nickname - explicitly set to empty string
-            border: "black", // Reset border to black
+            status: "waiting", // Change green background to red (waiting = red background)
+            maid: "", // Delete maid's nickname
+            border: "black", // Change border to black
           };
           
           // Preserve area and time if they exist
