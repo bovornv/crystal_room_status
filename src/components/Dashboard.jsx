@@ -540,23 +540,27 @@ const Dashboard = () => {
       const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
 
       let allText = "";
-      let textItemsWithPosition = []; // Store text items with positions for date and column extraction
-      let firstPage = null; // Store first page reference for viewport
+      let textItemsWithPosition = []; // Store text items with positions from ALL pages for column extraction
+      let firstPage = null; // Store first page reference for viewport and date extraction
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
         const textContent = await page.getTextContent();
         const pageText = textContent.items.map(item => item.str).join(" ");
         allText += " " + pageText;
         
-        // Store text items with positions for first page (where date usually is)
+        // Store first page reference for viewport (all pages should have same width)
         if (i === 1) {
           firstPage = page;
-          textItemsWithPosition = textContent.items.map(item => ({
-            str: item.str,
-            x: item.transform ? item.transform[4] : 0,
-            y: item.transform ? item.transform[5] : 0,
-          }));
         }
+        
+        // Store text items with positions from ALL pages for first column extraction
+        const pageItems = textContent.items.map(item => ({
+          str: item.str,
+          x: item.transform ? item.transform[4] : 0,
+          y: item.transform ? item.transform[5] : 0,
+          pageNum: i, // Track which page this item is from
+        }));
+        textItemsWithPosition.push(...pageItems);
       }
 
       // Extract 3-digit room numbers from text (e.g., 101, 205, 603)
@@ -590,39 +594,51 @@ const Dashboard = () => {
         return;
       }
 
-      // For in-house PDF, extract room numbers from first column only
+      // For in-house and departure PDFs, extract room numbers from first column of ALL pages
       let roomsToUpdate = validExistingRooms;
-      if (type === "inhouse") {
-        // Extract room numbers from first column
+      if (type === "inhouse" || type === "departure") {
+        // Extract room numbers from first column of all pages
         try {
           const viewport = firstPage.getViewport({ scale: 1.0 });
           const pageWidth = viewport.width;
           const firstColumnMaxX = pageWidth * 0.3;
           
+          // Filter items from first column (left 30% of page) and exclude header area
+          // Group by page and row to extract first column room from each row
           const firstColumnItems = textItemsWithPosition.filter(item => 
-            item.x < firstColumnMaxX && item.y < 700
+            item.x < firstColumnMaxX && item.y < 700 // Below header area
           );
           
-          const rows = {};
+          // Group by page number and row (Y position)
+          const pageRows = {};
           firstColumnItems.forEach(item => {
-            const rowKey = Math.round(item.y / 5) * 5;
-            if (!rows[rowKey]) rows[rowKey] = [];
-            rows[rowKey].push(item);
+            const pageKey = item.pageNum;
+            const rowKey = Math.round(item.y / 5) * 5; // Group by Y position with tolerance
+            const key = `${pageKey}_${rowKey}`;
+            if (!pageRows[key]) pageRows[key] = [];
+            pageRows[key].push(item);
           });
           
           const firstColumnRooms = [];
           const roomNumberPattern = /^\d{3}$/;
           
-          Object.keys(rows)
-            .sort((a, b) => parseFloat(b) - parseFloat(a))
-            .forEach(rowKey => {
-              const rowItems = rows[rowKey].sort((a, b) => a.x - b.x);
+          // Sort by page number, then by row (top to bottom), then extract leftmost room number
+          Object.keys(pageRows)
+            .sort((a, b) => {
+              const [pageA, rowA] = a.split('_').map(Number);
+              const [pageB, rowB] = b.split('_').map(Number);
+              if (pageA !== pageB) return pageA - pageB; // Page order
+              return rowB - rowA; // Top to bottom within page
+            })
+            .forEach(key => {
+              const rowItems = pageRows[key].sort((a, b) => a.x - b.x); // Left to right
+              // Find first valid room number in this row
               for (const item of rowItems) {
                 if (roomNumberPattern.test(item.str)) {
                   const roomNum = item.str;
                   if (validExistingRooms.includes(roomNum) && !firstColumnRooms.includes(roomNum)) {
                     firstColumnRooms.push(roomNum);
-                    break;
+                    break; // Only take first room number from this row
                   }
                 }
               }
@@ -630,7 +646,7 @@ const Dashboard = () => {
           
           if (firstColumnRooms.length > 0) {
             roomsToUpdate = firstColumnRooms;
-            console.log(`📋 Extracted ${firstColumnRooms.length} rooms from first column:`, firstColumnRooms);
+            console.log(`📋 Extracted ${firstColumnRooms.length} rooms from first column (all pages):`, firstColumnRooms);
           } else {
             console.log("⚠️ Could not extract first column rooms, using all valid rooms");
           }
@@ -707,10 +723,10 @@ const Dashboard = () => {
 
       // Store room count from PDF (column 1 count)
       if (type === "departure") {
-        setDepartureRoomCount(validExistingRooms.length);
+        setDepartureRoomCount(roomsToUpdate.length);
         // Save to Firestore
         await setDoc(doc(db, "reports", "counts"), {
-          departureRoomCount: validExistingRooms.length,
+          departureRoomCount: roomsToUpdate.length,
         }, { merge: true });
       } else if (type === "inhouse") {
         setInhouseRoomCount(roomsToUpdate.length);
@@ -724,8 +740,9 @@ const Dashboard = () => {
           // Find "Date" text and extract date from right side (top right area)
           let extractedDate = null;
           
-          // Find items in top right area (high Y values, high X values)
-          const topRightItems = textItemsWithPosition
+          // Find items in top right area of first page only (date is usually on first page)
+          const firstPageItems = textItemsWithPosition.filter(item => item.pageNum === 1);
+          const topRightItems = firstPageItems
             .filter(item => item.y > 700 && item.x > 300) // Adjust thresholds based on PDF layout
             .sort((a, b) => {
               if (Math.abs(a.y - b.y) > 5) return b.y - a.y; // Top to bottom
