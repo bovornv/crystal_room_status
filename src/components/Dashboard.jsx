@@ -3,7 +3,7 @@ import RoomCard from "./RoomCard";
 import CommonAreaCard from "./CommonAreaCard";
 import * as pdfjsLib from "pdfjs-dist";
 import { db } from "../services/firebase";
-import { collection, doc, getDoc, getDocs, setDoc, onSnapshot, serverTimestamp } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, setDoc, deleteDoc, onSnapshot, serverTimestamp } from "firebase/firestore";
 
 // Configure PDF.js worker for Vite
 if (typeof window !== 'undefined' && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
@@ -590,7 +590,57 @@ const Dashboard = () => {
         return;
       }
 
-      // Update only rooms found in PDF - set status based on report type
+      // For in-house PDF, extract room numbers from first column only
+      let roomsToUpdate = validExistingRooms;
+      if (type === "inhouse") {
+        // Extract room numbers from first column
+        try {
+          const viewport = firstPage.getViewport({ scale: 1.0 });
+          const pageWidth = viewport.width;
+          const firstColumnMaxX = pageWidth * 0.3;
+          
+          const firstColumnItems = textItemsWithPosition.filter(item => 
+            item.x < firstColumnMaxX && item.y < 700
+          );
+          
+          const rows = {};
+          firstColumnItems.forEach(item => {
+            const rowKey = Math.round(item.y / 5) * 5;
+            if (!rows[rowKey]) rows[rowKey] = [];
+            rows[rowKey].push(item);
+          });
+          
+          const firstColumnRooms = [];
+          const roomNumberPattern = /^\d{3}$/;
+          
+          Object.keys(rows)
+            .sort((a, b) => parseFloat(b) - parseFloat(a))
+            .forEach(rowKey => {
+              const rowItems = rows[rowKey].sort((a, b) => a.x - b.x);
+              for (const item of rowItems) {
+                if (roomNumberPattern.test(item.str)) {
+                  const roomNum = item.str;
+                  if (validExistingRooms.includes(roomNum) && !firstColumnRooms.includes(roomNum)) {
+                    firstColumnRooms.push(roomNum);
+                    break;
+                  }
+                }
+              }
+            });
+          
+          if (firstColumnRooms.length > 0) {
+            roomsToUpdate = firstColumnRooms;
+            console.log(`📋 Extracted ${firstColumnRooms.length} rooms from first column:`, firstColumnRooms);
+          } else {
+            console.log("⚠️ Could not extract first column rooms, using all valid rooms");
+          }
+        } catch (error) {
+          console.error("Error extracting first column rooms:", error);
+          console.log("⚠️ Using all valid rooms as fallback");
+        }
+      }
+
+      // Update only rooms found in PDF (or first column for in-house) - set status based on report type
       // In-House PDF = blue (stay_clean)
       // Expected Departure PDF = yellow (will_depart_today)
       // After Expected Departure PDF upload, ALWAYS assign gray-200 (long_stay) to long-stay rooms: 207, 503, 608, 609
@@ -599,7 +649,7 @@ const Dashboard = () => {
       const updatedRooms = rooms.map(r => {
         // Convert to string for comparison
         const roomNumStr = String(r.number);
-        const isInPDF = validExistingRooms.some(pdfRoom => String(pdfRoom) === roomNumStr);
+        const isInPDF = roomsToUpdate.some(pdfRoom => String(pdfRoom) === roomNumStr);
         const isLongStay = longStayRooms.includes(roomNumStr);
         
         // After Expected Departure PDF upload, ALWAYS assign gray-200 (long_stay) to long-stay rooms
@@ -642,7 +692,7 @@ const Dashboard = () => {
 
       console.log("Updated rooms count:", updatedRooms.filter(r => {
         const roomNumStr = String(r.number);
-        const isInPDF = validExistingRooms.some(pdfRoom => String(pdfRoom) === roomNumStr);
+        const isInPDF = roomsToUpdate.some(pdfRoom => String(pdfRoom) === roomNumStr);
         return isInPDF && (type === "departure" ? r.status === "will_depart_today" : r.status === "stay_clean");
       }).length);
 
@@ -663,10 +713,10 @@ const Dashboard = () => {
           departureRoomCount: validExistingRooms.length,
         }, { merge: true });
       } else if (type === "inhouse") {
-        setInhouseRoomCount(validExistingRooms.length);
+        setInhouseRoomCount(roomsToUpdate.length);
         // Save to Firestore
         await setDoc(doc(db, "reports", "counts"), {
-          inhouseRoomCount: validExistingRooms.length,
+          inhouseRoomCount: roomsToUpdate.length,
         }, { merge: true });
         
         // Extract date from PDF and store room numbers in date-named array
@@ -733,59 +783,15 @@ const Dashboard = () => {
             console.log("⚠️ Date not found in PDF, using current date:", extractedDate);
           }
           
-          // Extract room numbers from first column
-          // Get page dimensions to determine column boundaries
-          const viewport = firstPage.getViewport({ scale: 1.0 });
-          const pageWidth = viewport.width;
-          
-          // Assume first column is in left 30% of page (adjust if needed)
-          const firstColumnMaxX = pageWidth * 0.3;
-          
-          // Filter items that are likely in first column (left side, not header)
-          const firstColumnItems = textItemsWithPosition.filter(item => 
-            item.x < firstColumnMaxX && item.y < 700 // Below header area
-          );
-          
-          // Group by Y position (rows) and extract leftmost room number from each row
-          const rows = {};
-          firstColumnItems.forEach(item => {
-            const rowKey = Math.round(item.y / 5) * 5; // Group by Y position with smaller tolerance
-            if (!rows[rowKey]) rows[rowKey] = [];
-            rows[rowKey].push(item);
-          });
-          
-          const firstColumnRooms = [];
-          const roomNumberPattern = /^\d{3}$/;
-          
-          // Sort rows from top to bottom, then extract leftmost room number
-          Object.keys(rows)
-            .sort((a, b) => parseFloat(b) - parseFloat(a)) // Top to bottom
-            .forEach(rowKey => {
-              const rowItems = rows[rowKey].sort((a, b) => a.x - b.x); // Left to right
-              // Find first valid room number in this row
-              for (const item of rowItems) {
-                if (roomNumberPattern.test(item.str)) {
-                  const roomNum = item.str;
-                  if (validExistingRooms.includes(roomNum) && !firstColumnRooms.includes(roomNum)) {
-                    firstColumnRooms.push(roomNum);
-                    break; // Only take first room number from this row
-                  }
-                }
-              }
-            });
-          
-          // If we couldn't extract from positions, use all valid rooms as fallback
-          const roomsToStore = firstColumnRooms.length > 0 ? firstColumnRooms : validExistingRooms;
-          
-          // Store in Firestore with date-based key
+          // Store roomsToUpdate (first column rooms) in Firestore with date-based key
           const arrayKey = `occupied_rooms_${extractedDate}`;
           await setDoc(doc(db, "reports", arrayKey), {
-            rooms: roomsToStore,
+            rooms: roomsToUpdate, // Store the rooms from first column that were updated
             date: extractedDate,
             uploadedAt: new Date().toISOString(),
           }, { merge: true });
           
-          console.log(`✅ Stored ${roomsToStore.length} rooms in ${arrayKey}:`, roomsToStore);
+          console.log(`✅ Stored ${roomsToUpdate.length} rooms in ${arrayKey}:`, roomsToUpdate);
         } catch (error) {
           console.error("Error storing occupied rooms:", error);
         }
@@ -793,11 +799,11 @@ const Dashboard = () => {
 
       // Write to Firestore immediately for real-time sync
       await updateFirestoreImmediately(updatedRooms);
-        console.log(`✅ PDF upload synced to Firestore - ${validExistingRooms.length} rooms updated`);
+        console.log(`✅ PDF upload synced to Firestore - ${roomsToUpdate.length} rooms updated`);
 
       // Show success toast with count
       const statusText = type === "departure" ? "จะออกวันนี้" : "พักต่อ";
-      alert(`${validExistingRooms.length} ห้องถูกอัปเดตเป็นสถานะ ${statusText}`);
+      alert(`${roomsToUpdate.length} ห้องถูกอัปเดตเป็นสถานะ ${statusText}`);
       
       // Reset file input so the same file can be uploaded again
       if (type === "inhouse" && inhouseFileInputRef.current) {
@@ -1330,13 +1336,46 @@ const Dashboard = () => {
                   const allRoomNumbers = rooms.map(r => String(r.number));
                   const unoccupied3d = allRoomNumbers.filter(roomNum => !occupiedRoomsSet.has(roomNum));
                   
+                  // Step 7: Change room status of unoccupied_rooms_3d to purple (unoccupied_3d)
+                  const updatedRooms = rooms.map(r => {
+                    const roomNumStr = String(r.number);
+                    if (unoccupied3d.includes(roomNumStr)) {
+                      return { ...r, status: "unoccupied_3d" };
+                    }
+                    return r;
+                  });
+                  
+                  // Update state
+                  setRooms(updatedRooms);
                   setUnoccupiedRooms3d(new Set(unoccupied3d));
                   setShowUnoccupiedRooms(true);
+                  
+                  // Save to Firestore immediately for real-time sync
+                  await updateFirestoreImmediately(updatedRooms);
+                  console.log(`✅ Updated ${unoccupied3d.length} rooms to unoccupied_3d status and synced to Firestore`);
+                  
+                  // Step 8: Delete all arrays that start with occupied_rooms_
+                  const reportsCollection = collection(db, "reports");
+                  const allReportsSnapshot = await getDocs(reportsCollection);
+                  const deletePromises = [];
+                  
+                  allReportsSnapshot.docs.forEach(docSnap => {
+                    const docId = docSnap.id;
+                    if (docId.startsWith("occupied_rooms_")) {
+                      deletePromises.push(deleteDoc(doc(db, "reports", docId)));
+                      console.log(`🗑️ Deleting ${docId}`);
+                    }
+                  });
+                  
+                  await Promise.all(deletePromises);
+                  console.log(`✅ Deleted ${deletePromises.length} occupied_rooms_ arrays`);
                   
                   console.log(`✅ Computed unoccupied_rooms_3d: ${unoccupied3d.length} rooms`);
                   console.log(`   Total rooms: ${allRoomNumbers.length}`);
                   console.log(`   Occupied rooms (union of last 3 days): ${occupiedRoomsSet.size}`);
                   console.log(`   Unoccupied rooms:`, unoccupied3d);
+                  
+                  alert(`อัปเดต ${unoccupied3d.length} ห้องเป็นสีม่วง (ไม่มีเข้าพัก 3 วันติด) และลบข้อมูล occupied_rooms_ ทั้งหมดแล้ว`);
                 } catch (error) {
                   console.error("Error computing unoccupied rooms:", error);
                   alert("เกิดข้อผิดพลาดในการคำนวณห้องที่ว่าง: " + error.message);
@@ -1393,9 +1432,7 @@ const Dashboard = () => {
             </div>
             <div className="flex-1 overflow-x-auto">
               <div className="flex gap-1.5 min-w-max">
-                {roomsOnFloor.map(r => {
-                  const isUnoccupied = showUnoccupiedRooms && unoccupiedRooms3d.has(String(r.number));
-                  return (
+                {roomsOnFloor.map(r => (
                   <RoomCard 
                     key={r.number} 
                     room={r} 
@@ -1404,10 +1441,8 @@ const Dashboard = () => {
                     onLoginRequired={() => setShowLoginModal(true)}
                     currentNickname={nickname}
                     currentDate={remarkDateString}
-                    isUnoccupied={isUnoccupied}
                   />
-                );
-                })}
+                ))}
               </div>
             </div>
           </div>

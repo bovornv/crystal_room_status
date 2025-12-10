@@ -3,7 +3,7 @@ import { doc, setDoc } from "firebase/firestore";
 import { db } from "../services/firebase";
 import { motion, AnimatePresence } from "framer-motion";
 
-const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, currentNickname, currentDate, isUnoccupied = false }) => {
+const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, currentNickname, currentDate }) => {
   const [showPopup, setShowPopup] = useState(false);
   const [remark, setRemark] = useState(room.remark || "");
 
@@ -21,11 +21,12 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
     stay_clean: "bg-blue-200", // พักต่อ
     will_depart_today: "bg-yellow-200", // จะออกวันนี้
     long_stay: "bg-gray-200", // รายเดือน
+    unoccupied_3d: "bg-purple-300", // ห้องไม่มีเข้าพัก 3 วันติด
   };
 
   const isFO = currentNickname === "FO";
-  // If room is unoccupied for 3+ days, use purple background
-  const roomBg = isUnoccupied ? "bg-purple-300" : (colorMap[room.status] || "bg-white");
+  // Use status-based color, purple for unoccupied_3d status
+  const roomBg = colorMap[room.status] || "bg-white";
   const borderColor = room.border === "red" ? "border-2 border-red-600" : "border border-black";
 
   const handleStatusChange = async (status) => {
