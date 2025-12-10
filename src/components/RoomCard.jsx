@@ -3,7 +3,7 @@ import { doc, setDoc } from "firebase/firestore";
 import { db } from "../services/firebase";
 import { motion, AnimatePresence } from "framer-motion";
 
-const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, currentNickname, currentDate }) => {
+const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, currentNickname, currentDate, isUnoccupied = false }) => {
   const [showPopup, setShowPopup] = useState(false);
   const [remark, setRemark] = useState(room.remark || "");
 
@@ -24,7 +24,8 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
   };
 
   const isFO = currentNickname === "FO";
-  const roomBg = colorMap[room.status] || "bg-white";
+  // If room is unoccupied for 3+ days, use purple background
+  const roomBg = isUnoccupied ? "bg-purple-300" : (colorMap[room.status] || "bg-white");
   const borderColor = room.border === "red" ? "border-2 border-red-600" : "border border-black";
 
   const handleStatusChange = async (status) => {

@@ -64,6 +64,8 @@ const Dashboard = () => {
   const [commonAreas, setCommonAreas] = useState([]);
   const [departureRoomCount, setDepartureRoomCount] = useState(0); // Count from expected departure PDF
   const [inhouseRoomCount, setInhouseRoomCount] = useState(0); // Count from in-house PDF
+  const [showUnoccupiedRooms, setShowUnoccupiedRooms] = useState(false); // Toggle showing rooms unoccupied for 3+ days
+  const [unoccupiedRooms3d, setUnoccupiedRooms3d] = useState(new Set()); // Set of room numbers unoccupied for 3+ days
   
   // Update time every minute
   useEffect(() => {
@@ -245,11 +247,23 @@ const Dashboard = () => {
   const updateRoomImmediately = async (roomNumber, roomUpdates) => {
     // Use functional update to ensure we have the latest state
     setRooms(prevRooms => {
-      const updatedRooms = prevRooms.map(r => 
-        String(r.number) === String(roomNumber) 
-          ? { ...r, ...roomUpdates }
-          : r
-      );
+      const updatedRooms = prevRooms.map(r => {
+        if (String(r.number) === String(roomNumber)) {
+          const updated = { ...r, ...roomUpdates };
+          // Track when room becomes vacant
+          if (updated.status === "vacant" && r.status !== "vacant") {
+            updated.vacantSince = new Date().toISOString();
+          } else if (updated.status !== "vacant" && r.status === "vacant") {
+            // Clear vacantSince when room becomes occupied
+            updated.vacantSince = undefined;
+          } else if (updated.status === "vacant" && r.status === "vacant") {
+            // Preserve vacantSince if room stays vacant
+            updated.vacantSince = r.vacantSince || new Date().toISOString();
+          }
+          return updated;
+        }
+        return r;
+      });
       
       // Update Firestore immediately for real-time sync (no debounce)
       // Firestore update happens asynchronously, won't block state update
@@ -358,12 +372,20 @@ const Dashboard = () => {
 
   // Helper function to migrate moved_out to checked_out (consolidate statuses)
   // Also ensure all rooms have a border field (default to black if missing)
+  // Initialize vacantSince for vacant rooms that don't have it
   const migrateMovedOutToCheckedOut = (roomsArray) => {
     return roomsArray.map(r => {
       const migrated = r.status === "moved_out" ? { ...r, status: "checked_out" } : r;
       // Ensure border field exists (default to black if missing)
       if (!migrated.border) {
         migrated.border = "black";
+      }
+      // Initialize vacantSince for vacant rooms that don't have it
+      if (migrated.status === "vacant" && !migrated.vacantSince) {
+        migrated.vacantSince = new Date().toISOString();
+      } else if (migrated.status !== "vacant") {
+        // Clear vacantSince when room is not vacant
+        migrated.vacantSince = undefined;
       }
       return migrated;
     });
@@ -518,11 +540,23 @@ const Dashboard = () => {
       const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
 
       let allText = "";
+      let textItemsWithPosition = []; // Store text items with positions for date and column extraction
+      let firstPage = null; // Store first page reference for viewport
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
         const textContent = await page.getTextContent();
         const pageText = textContent.items.map(item => item.str).join(" ");
         allText += " " + pageText;
+        
+        // Store text items with positions for first page (where date usually is)
+        if (i === 1) {
+          firstPage = page;
+          textItemsWithPosition = textContent.items.map(item => ({
+            str: item.str,
+            x: item.transform ? item.transform[4] : 0,
+            y: item.transform ? item.transform[5] : 0,
+          }));
+        }
       }
 
       // Extract 3-digit room numbers from text (e.g., 101, 205, 603)
@@ -580,18 +614,24 @@ const Dashboard = () => {
           if (type === "inhouse") {
             // In-House PDF: set to blue (stay_clean)
             // Preserve border (keep existing or default to black)
+            // Clear vacantSince when room becomes occupied
             console.log(`Updating room ${r.number} to stay_clean (blue)`);
-              return { ...r, status: "stay_clean", cleanedToday: false, border: r.border || "black" };
-            }
+            return { ...r, status: "stay_clean", cleanedToday: false, border: r.border || "black", vacantSince: undefined };
+          }
           if (type === "departure") {
             // Expected Departure PDF: set to yellow (will_depart_today)
             // Preserve border (keep existing or default to black)
             // Skip if it's a long-stay room (already handled above - they become gray-200/long_stay)
+            // Clear vacantSince when room becomes occupied
             if (!isLongStay) {
               console.log(`Updating room ${r.number} to will_depart_today (yellow)`);
-              return { ...r, status: "will_depart_today", cleanedToday: false, border: r.border || "black" };
+              return { ...r, status: "will_depart_today", cleanedToday: false, border: r.border || "black", vacantSince: undefined };
             }
           }
+        }
+        // For rooms not in PDF, preserve vacantSince if room is vacant
+        if (r.status === "vacant" && !r.vacantSince) {
+          return { ...r, vacantSince: new Date().toISOString() };
         }
         // Return room unchanged if not in PDF and not a long-stay room
         return r;
@@ -628,6 +668,127 @@ const Dashboard = () => {
         await setDoc(doc(db, "reports", "counts"), {
           inhouseRoomCount: validExistingRooms.length,
         }, { merge: true });
+        
+        // Extract date from PDF and store room numbers in date-named array
+        try {
+          // Find "Date" text and extract date from right side (top right area)
+          let extractedDate = null;
+          
+          // Find items in top right area (high Y values, high X values)
+          const topRightItems = textItemsWithPosition
+            .filter(item => item.y > 700 && item.x > 300) // Adjust thresholds based on PDF layout
+            .sort((a, b) => {
+              if (Math.abs(a.y - b.y) > 5) return b.y - a.y; // Top to bottom
+              return a.x - b.x; // Left to right
+            });
+          
+          // Look for "Date" text and find date immediately after it
+          const dateIndex = topRightItems.findIndex(item => 
+            item.str.toLowerCase().includes("date") || item.str === "Date"
+          );
+          
+          if (dateIndex !== -1 && dateIndex < topRightItems.length - 1) {
+            // Look for date pattern in text items near "Date"
+            const searchItems = topRightItems.slice(dateIndex, dateIndex + 10);
+            const dateText = searchItems.map(item => item.str).join(" ");
+            
+            // Try various date patterns: DD/MM/YYYY, DD-MM-YYYY, DD MM YYYY
+            const datePatterns = [
+              /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/,  // DD/MM/YYYY or DD-MM-YYYY
+              /(\d{1,2})\s+(\d{1,2})\s+(\d{4})/,        // DD MM YYYY
+              /(\d{2})[\/\-](\d{2})[\/\-](\d{4})/,       // DD/MM/YYYY (2 digits)
+            ];
+            
+            for (const pattern of datePatterns) {
+              const match = dateText.match(pattern);
+              if (match) {
+                const day = match[1].padStart(2, '0');
+                const month = match[2].padStart(2, '0');
+                const year = match[3];
+                extractedDate = `${day}_${month}_${year}`;
+                break;
+              }
+            }
+          }
+          
+          // If still not found, search entire text for date pattern
+          if (!extractedDate) {
+            const datePattern = /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/;
+            const dateMatch = allText.match(datePattern);
+            if (dateMatch) {
+              const day = dateMatch[1].padStart(2, '0');
+              const month = dateMatch[2].padStart(2, '0');
+              const year = dateMatch[3];
+              extractedDate = `${day}_${month}_${year}`;
+            }
+          }
+          
+          // If date not found, use current date
+          if (!extractedDate) {
+            const today = new Date();
+            const day = String(today.getDate()).padStart(2, '0');
+            const month = String(today.getMonth() + 1).padStart(2, '0');
+            const year = today.getFullYear();
+            extractedDate = `${day}_${month}_${year}`;
+            console.log("⚠️ Date not found in PDF, using current date:", extractedDate);
+          }
+          
+          // Extract room numbers from first column
+          // Get page dimensions to determine column boundaries
+          const viewport = firstPage.getViewport({ scale: 1.0 });
+          const pageWidth = viewport.width;
+          
+          // Assume first column is in left 30% of page (adjust if needed)
+          const firstColumnMaxX = pageWidth * 0.3;
+          
+          // Filter items that are likely in first column (left side, not header)
+          const firstColumnItems = textItemsWithPosition.filter(item => 
+            item.x < firstColumnMaxX && item.y < 700 // Below header area
+          );
+          
+          // Group by Y position (rows) and extract leftmost room number from each row
+          const rows = {};
+          firstColumnItems.forEach(item => {
+            const rowKey = Math.round(item.y / 5) * 5; // Group by Y position with smaller tolerance
+            if (!rows[rowKey]) rows[rowKey] = [];
+            rows[rowKey].push(item);
+          });
+          
+          const firstColumnRooms = [];
+          const roomNumberPattern = /^\d{3}$/;
+          
+          // Sort rows from top to bottom, then extract leftmost room number
+          Object.keys(rows)
+            .sort((a, b) => parseFloat(b) - parseFloat(a)) // Top to bottom
+            .forEach(rowKey => {
+              const rowItems = rows[rowKey].sort((a, b) => a.x - b.x); // Left to right
+              // Find first valid room number in this row
+              for (const item of rowItems) {
+                if (roomNumberPattern.test(item.str)) {
+                  const roomNum = item.str;
+                  if (validExistingRooms.includes(roomNum) && !firstColumnRooms.includes(roomNum)) {
+                    firstColumnRooms.push(roomNum);
+                    break; // Only take first room number from this row
+                  }
+                }
+              }
+            });
+          
+          // If we couldn't extract from positions, use all valid rooms as fallback
+          const roomsToStore = firstColumnRooms.length > 0 ? firstColumnRooms : validExistingRooms;
+          
+          // Store in Firestore with date-based key
+          const arrayKey = `occupied_rooms_${extractedDate}`;
+          await setDoc(doc(db, "reports", arrayKey), {
+            rooms: roomsToStore,
+            date: extractedDate,
+            uploadedAt: new Date().toISOString(),
+          }, { merge: true });
+          
+          console.log(`✅ Stored ${roomsToStore.length} rooms in ${arrayKey}:`, roomsToStore);
+        } catch (error) {
+          console.error("Error storing occupied rooms:", error);
+        }
       }
 
       // Write to Firestore immediately for real-time sync
@@ -657,8 +818,11 @@ const Dashboard = () => {
     }
   };
 
+  // Show all rooms, but mark unoccupied ones for purple highlighting
+  const filteredRooms = rooms;
+
   const floors = [6,5,4,3,2,1].map(f =>
-    rooms.filter(r => r.floor === f)
+    filteredRooms.filter(r => r.floor === f)
   );
 
   // Calculate maid scores dynamically
@@ -743,7 +907,8 @@ const Dashboard = () => {
           cleanedBy: "",
           cleanedToday: false,
           border: "black", // ALL rooms get black border
-          remark: r.remark || "" // Preserve remark - do not delete
+          remark: r.remark || "", // Preserve remark - do not delete
+          vacantSince: new Date().toISOString() // Initialize vacantSince when clearing
         };
       });
 
@@ -1096,6 +1261,81 @@ const Dashboard = () => {
             📄 2. Upload Expected Departure PDF
           </label>
         </div>
+        {nickname === "FO" && (
+          <button
+            onClick={async () => {
+              if (!showUnoccupiedRooms) {
+                // Compute unoccupied_rooms_3d
+                try {
+                  const reportsCollection = collection(db, "reports");
+                  const snapshot = await getDocs(reportsCollection);
+                  
+                  // Get dates for today, 1 day ago, and 2 days ago
+                  const today = new Date();
+                  const oneDayAgo = new Date(today);
+                  oneDayAgo.setDate(oneDayAgo.getDate() - 1);
+                  const twoDaysAgo = new Date(today);
+                  twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+                  
+                  const formatDate = (date) => {
+                    const day = String(date.getDate()).padStart(2, '0');
+                    const month = String(date.getMonth() + 1).padStart(2, '0');
+                    const year = date.getFullYear();
+                    return `${day}_${month}_${year}`;
+                  };
+                  
+                  const todayStr = formatDate(today);
+                  const oneDayAgoStr = formatDate(oneDayAgo);
+                  const twoDaysAgoStr = formatDate(twoDaysAgo);
+                  
+                  // Collect all occupied room numbers from the last 3 days
+                  const occupiedRoomsSet = new Set();
+                  
+                  snapshot.docs.forEach(doc => {
+                    const docId = doc.id;
+                    if (docId.startsWith("occupied_rooms_")) {
+                      const dateStr = docId.replace("occupied_rooms_", "");
+                      // Check if this date is today, 1 day ago, or 2 days ago
+                      if (dateStr === todayStr || dateStr === oneDayAgoStr || dateStr === twoDaysAgoStr) {
+                        const data = doc.data();
+                        if (data.rooms && Array.isArray(data.rooms)) {
+                          data.rooms.forEach(roomNum => {
+                            occupiedRoomsSet.add(String(roomNum));
+                          });
+                        }
+                      }
+                    }
+                  });
+                  
+                  // Compute unoccupied_rooms_3d = all rooms - union of occupied rooms
+                  const allRoomNumbers = rooms.map(r => String(r.number));
+                  const unoccupied3d = allRoomNumbers.filter(roomNum => !occupiedRoomsSet.has(roomNum));
+                  
+                  setUnoccupiedRooms3d(new Set(unoccupied3d));
+                  setShowUnoccupiedRooms(true);
+                  
+                  console.log(`✅ Computed unoccupied_rooms_3d: ${unoccupied3d.length} rooms`);
+                  console.log(`   Occupied rooms (last 3 days): ${occupiedRoomsSet.size}`);
+                  console.log(`   Unoccupied rooms:`, unoccupied3d);
+                } catch (error) {
+                  console.error("Error computing unoccupied rooms:", error);
+                  alert("เกิดข้อผิดพลาดในการคำนวณห้องที่ว่าง: " + error.message);
+                }
+              } else {
+                // Toggle off - clear the unoccupied rooms set
+                setUnoccupiedRooms3d(new Set());
+                setShowUnoccupiedRooms(false);
+              }
+            }}
+            className={`px-4 py-2 rounded-lg shadow-md transition-colors inline-block select-none ${
+              showUnoccupiedRooms
+                ? "bg-purple-600 text-white hover:bg-purple-700"
+                : "bg-purple-500 text-white hover:bg-purple-600"
+            }`}
+          >
+            3. Show Rooms Unoccupied Over last 3 days
+          </button>
+        )}
       </div>
       )}
 
@@ -1133,7 +1373,9 @@ const Dashboard = () => {
             </div>
             <div className="flex-1 overflow-x-auto">
               <div className="flex gap-1.5 min-w-max">
-                {roomsOnFloor.map(r => (
+                {roomsOnFloor.map(r => {
+                  const isUnoccupied = showUnoccupiedRooms && unoccupiedRooms3d.has(String(r.number));
+                  return (
                   <RoomCard 
                     key={r.number} 
                     room={r} 
@@ -1142,8 +1384,10 @@ const Dashboard = () => {
                     onLoginRequired={() => setShowLoginModal(true)}
                     currentNickname={nickname}
                     currentDate={remarkDateString}
+                    isUnoccupied={isUnoccupied}
                   />
-                ))}
+                );
+                })}
               </div>
             </div>
           </div>
@@ -1346,6 +1590,10 @@ const Dashboard = () => {
           <div className="flex items-center gap-3">
             <div className="w-6 h-6 rounded bg-gray-200 flex-shrink-0"></div>
             <span>รายเดือน</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-6 h-6 rounded bg-purple-300 flex-shrink-0"></div>
+            <span>ห้องไม่มีเข้าพัก 3 วันติด</span>
           </div>
         </div>
       </div>
