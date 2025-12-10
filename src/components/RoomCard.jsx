@@ -124,46 +124,53 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
               exit={{ scale: 0.9 }}
               onClick={(e) => e.stopPropagation()}
             >
-              <h2 className="text-xl font-bold mb-4 text-center text-[#15803D]">
+              <h2 className="text-2xl sm:text-3xl font-bold mb-6 text-center text-[#15803D]">
                 ห้อง {room.number}
               </h2>
 
-              {/* Maid user */}
+              {/* Non-FO user */}
               {!isFO && (
                 <>
+                  {/* Show only one button based on room color */}
+                  {/* If room is NOT blue (stay_clean) and NOT light gray (long_stay), show green button */}
                   {room.status !== "stay_clean" && room.status !== "long_stay" && (
-                    <button
-                      className="w-full bg-green-200 hover:bg-green-300 text-black py-4 rounded-lg mb-3 text-lg font-semibold transition-colors"
-                      onClick={() => handleStatusChange("cleaned")}
-                    >
-                      ทำห้องเสร็จแล้ว (ว่าง)
-                    </button>
+                    <div className="flex justify-center mb-4">
+                      <button
+                        className="w-full bg-green-200 hover:bg-green-300 text-black py-6 rounded-lg text-xl sm:text-2xl font-bold transition-colors"
+                        onClick={() => handleStatusChange("cleaned")}
+                      >
+                        ห้องเสร็จแล้ว (ว่าง)
+                      </button>
+                    </div>
                   )}
+                  {/* If room IS blue or light gray, show cyan button */}
                   {(room.status === "stay_clean" || room.status === "long_stay") && (
-                    <button
-                      className="w-full bg-cyan-200 hover:bg-cyan-300 text-black py-4 rounded-lg mb-3 text-lg font-semibold transition-colors"
-                      onClick={() => handleStatusChange("cleaned_stay")}
-                    >
-                      ทำห้องเสร็จแล้ว (พักต่อ)
-                    </button>
+                    <div className="flex justify-center mb-4">
+                      <button
+                        className="w-full bg-cyan-200 hover:bg-cyan-300 text-black py-6 rounded-lg text-xl sm:text-2xl font-bold transition-colors"
+                        onClick={() => handleStatusChange("cleaned_stay")}
+                      >
+                        ห้องเสร็จแล้ว (พักต่อ)
+                      </button>
+                    </div>
                   )}
-                  <div className="flex justify-between mb-3">
+                  <div className="flex justify-between items-center mb-3">
                     <button
                       onClick={handleSelectRoom}
-                      className="bg-[#15803D] text-white px-4 py-2 rounded-lg text-base font-semibold hover:bg-[#166534] transition-colors"
+                      className="bg-[#15803D] text-white px-6 py-3 rounded-lg text-lg sm:text-xl font-semibold hover:bg-[#166534] transition-colors"
                     >
                       เลือกห้องนี้
                     </button>
                     <div className="flex gap-2">
                       <button
                         onClick={() => setShowPopup(false)}
-                        className="bg-gray-300 text-black px-4 py-2 rounded-lg text-base font-semibold hover:bg-gray-400 transition-colors"
+                        className="bg-gray-300 text-black px-6 py-3 rounded-lg text-lg sm:text-xl font-semibold hover:bg-gray-400 transition-colors"
                       >
                         ปิด
                       </button>
                       <button
                         onClick={handleSaveRemark}
-                        className="bg-[#15803D] text-white px-4 py-2 rounded-lg text-base font-semibold hover:bg-[#166534] transition-colors"
+                        className="bg-[#15803D] text-white px-6 py-3 rounded-lg text-lg sm:text-xl font-semibold hover:bg-[#166534] transition-colors"
                       >
                         บันทึก
                       </button>
@@ -175,52 +182,52 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
               {/* FO user */}
               {isFO && (
                 <>
-                  <div className="grid grid-cols-2 gap-2 mb-4">
+                  <div className="grid grid-cols-2 gap-3 mb-4">
                     <button
                       onClick={() => handleStatusChange("cleaned")}
-                      className="bg-green-200 py-3 rounded-lg text-black font-semibold hover:bg-green-300 transition-colors"
+                      className="bg-green-200 py-4 rounded-lg text-black text-lg sm:text-xl font-bold hover:bg-green-300 transition-colors"
                     >
-                      ทำห้องเสร็จแล้ว (ว่าง)
+                      ห้องเสร็จแล้ว (ว่าง)
                     </button>
                     <button
                       onClick={() => handleStatusChange("cleaned_stay")}
-                      className="bg-cyan-200 py-3 rounded-lg text-black font-semibold hover:bg-cyan-300 transition-colors"
+                      className="bg-cyan-200 py-4 rounded-lg text-black text-lg sm:text-xl font-bold hover:bg-cyan-300 transition-colors"
                     >
-                      ทำห้องเสร็จแล้ว (พักต่อ)
+                      ห้องเสร็จแล้ว (พักต่อ)
                     </button>
                     <button
                       onClick={() => handleStatusChange("closed")}
-                      className="bg-gray-500 text-white py-3 rounded-lg font-semibold hover:bg-gray-600 transition-colors"
+                      className="bg-gray-500 text-white py-4 rounded-lg text-lg sm:text-xl font-bold hover:bg-gray-600 transition-colors"
                     >
                       ปิดห้อง
                     </button>
                     <button
                       onClick={() => handleStatusChange("checked_out")}
-                      className="bg-red-300 py-3 rounded-lg text-black font-semibold hover:bg-red-400 transition-colors"
+                      className="bg-red-300 py-4 rounded-lg text-black text-lg sm:text-xl font-bold hover:bg-red-400 transition-colors"
                     >
                       ออกแล้ว
                     </button>
                     <button
                       onClick={() => handleStatusChange("vacant")}
-                      className="bg-white border-2 border-gray-300 py-3 rounded-lg text-black font-semibold hover:bg-gray-50 transition-colors"
+                      className="bg-white border-2 border-gray-300 py-4 rounded-lg text-black text-lg sm:text-xl font-bold hover:bg-gray-50 transition-colors"
                     >
                       ว่าง
                     </button>
                     <button
                       onClick={() => handleStatusChange("stay_clean")}
-                      className="bg-blue-200 py-3 rounded-lg text-black font-semibold hover:bg-blue-300 transition-colors"
+                      className="bg-blue-200 py-4 rounded-lg text-black text-lg sm:text-xl font-bold hover:bg-blue-300 transition-colors"
                     >
                       พักต่อ
                     </button>
                     <button
                       onClick={() => handleStatusChange("will_depart_today")}
-                      className="bg-yellow-200 py-3 rounded-lg text-black font-semibold hover:bg-yellow-300 transition-colors"
+                      className="bg-yellow-200 py-4 rounded-lg text-black text-lg sm:text-xl font-bold hover:bg-yellow-300 transition-colors"
                     >
                       จะออกวันนี้
                     </button>
                     <button
                       onClick={() => handleStatusChange("long_stay")}
-                      className="bg-gray-200 py-3 rounded-lg text-black font-semibold hover:bg-gray-300 transition-colors"
+                      className="bg-gray-200 py-4 rounded-lg text-black text-lg sm:text-xl font-bold hover:bg-gray-300 transition-colors"
                     >
                       รายเดือน
                     </button>
@@ -228,13 +235,13 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
                   <div className="flex justify-end gap-2">
                     <button
                       onClick={() => setShowPopup(false)}
-                      className="bg-gray-300 text-black px-4 py-2 rounded-lg text-base font-semibold hover:bg-gray-400 transition-colors"
+                      className="bg-gray-300 text-black px-6 py-3 rounded-lg text-lg sm:text-xl font-semibold hover:bg-gray-400 transition-colors"
                     >
                       ปิด
                     </button>
                     <button
                       onClick={handleSaveRemark}
-                      className="bg-[#15803D] text-white px-4 py-2 rounded-lg text-base font-semibold hover:bg-[#166534] transition-colors"
+                      className="bg-[#15803D] text-white px-6 py-3 rounded-lg text-lg sm:text-xl font-semibold hover:bg-[#166534] transition-colors"
                     >
                       บันทึก
                     </button>
