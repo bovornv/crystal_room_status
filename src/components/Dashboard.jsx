@@ -1267,47 +1267,60 @@ const Dashboard = () => {
               if (!showUnoccupiedRooms) {
                 // Compute unoccupied_rooms_3d
                 try {
+                  // Step 1: Get date, month, year of today from the system
+                  const today = new Date();
+                  const day = String(today.getDate()).padStart(2, '0');
+                  const month = String(today.getMonth() + 1).padStart(2, '0');
+                  const year = today.getFullYear();
+                  
+                  // Step 2: Format today as DD_MM_YYYY
+                  const todayStr = `${day}_${month}_${year}`;
+                  
+                  // Step 3: Calculate 1 day ago and 2 days ago
+                  const oneDayAgo = new Date(today);
+                  oneDayAgo.setDate(oneDayAgo.getDate() - 1);
+                  const oneDayAgoDay = String(oneDayAgo.getDate()).padStart(2, '0');
+                  const oneDayAgoMonth = String(oneDayAgo.getMonth() + 1).padStart(2, '0');
+                  const oneDayAgoYear = oneDayAgo.getFullYear();
+                  const oneDayAgoStr = `${oneDayAgoDay}_${oneDayAgoMonth}_${oneDayAgoYear}`;
+                  
+                  const twoDaysAgo = new Date(today);
+                  twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+                  const twoDaysAgoDay = String(twoDaysAgo.getDate()).padStart(2, '0');
+                  const twoDaysAgoMonth = String(twoDaysAgo.getMonth() + 1).padStart(2, '0');
+                  const twoDaysAgoYear = twoDaysAgo.getFullYear();
+                  const twoDaysAgoStr = `${twoDaysAgoDay}_${twoDaysAgoMonth}_${twoDaysAgoYear}`;
+                  
+                  console.log(`📅 Date calculation:`);
+                  console.log(`   Today: ${todayStr}`);
+                  console.log(`   1 day ago: ${oneDayAgoStr}`);
+                  console.log(`   2 days ago: ${twoDaysAgoStr}`);
+                  
+                  // Step 4: Fetch occupied_rooms arrays from Firestore
                   const reportsCollection = collection(db, "reports");
                   const snapshot = await getDocs(reportsCollection);
                   
-                  // Get dates for today, 1 day ago, and 2 days ago
-                  const today = new Date();
-                  const oneDayAgo = new Date(today);
-                  oneDayAgo.setDate(oneDayAgo.getDate() - 1);
-                  const twoDaysAgo = new Date(today);
-                  twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
-                  
-                  const formatDate = (date) => {
-                    const day = String(date.getDate()).padStart(2, '0');
-                    const month = String(date.getMonth() + 1).padStart(2, '0');
-                    const year = date.getFullYear();
-                    return `${day}_${month}_${year}`;
-                  };
-                  
-                  const todayStr = formatDate(today);
-                  const oneDayAgoStr = formatDate(oneDayAgo);
-                  const twoDaysAgoStr = formatDate(twoDaysAgo);
-                  
-                  // Collect all occupied room numbers from the last 3 days
+                  // Step 5: Collect union of occupied_rooms_today, occupied_rooms_1_day_ago, occupied_rooms_2_days_ago
                   const occupiedRoomsSet = new Set();
                   
                   snapshot.docs.forEach(doc => {
                     const docId = doc.id;
                     if (docId.startsWith("occupied_rooms_")) {
                       const dateStr = docId.replace("occupied_rooms_", "");
-                      // Check if this date is today, 1 day ago, or 2 days ago
+                      // Check if this date matches today, 1 day ago, or 2 days ago
                       if (dateStr === todayStr || dateStr === oneDayAgoStr || dateStr === twoDaysAgoStr) {
                         const data = doc.data();
                         if (data.rooms && Array.isArray(data.rooms)) {
                           data.rooms.forEach(roomNum => {
                             occupiedRoomsSet.add(String(roomNum));
                           });
+                          console.log(`   Found ${data.rooms.length} rooms in ${docId}`);
                         }
                       }
                     }
                   });
                   
-                  // Compute unoccupied_rooms_3d = all rooms - union of occupied rooms
+                  // Step 6: Compute unoccupied_rooms_3d = all rooms - union(occupied_rooms_today, occupied_rooms_1_day_ago, occupied_rooms_2_days_ago)
                   const allRoomNumbers = rooms.map(r => String(r.number));
                   const unoccupied3d = allRoomNumbers.filter(roomNum => !occupiedRoomsSet.has(roomNum));
                   
@@ -1315,7 +1328,8 @@ const Dashboard = () => {
                   setShowUnoccupiedRooms(true);
                   
                   console.log(`✅ Computed unoccupied_rooms_3d: ${unoccupied3d.length} rooms`);
-                  console.log(`   Occupied rooms (last 3 days): ${occupiedRoomsSet.size}`);
+                  console.log(`   Total rooms: ${allRoomNumbers.length}`);
+                  console.log(`   Occupied rooms (union of last 3 days): ${occupiedRoomsSet.size}`);
                   console.log(`   Unoccupied rooms:`, unoccupied3d);
                 } catch (error) {
                   console.error("Error computing unoccupied rooms:", error);
