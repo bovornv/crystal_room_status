@@ -225,9 +225,12 @@ const Dashboard = () => {
       const migratedRooms = migrateMovedOutToCheckedOut(updatedRooms);
       const payload = {
         rooms: migratedRooms,
-        lastUpdated: new Date().toISOString()
+        lastUpdated: new Date().toISOString(),
+        updatedBy: nickname || "unknown" // Track who made the update for debugging
       };
       
+      // Use setDoc with merge: true to preserve other document fields
+      // The rooms array is always complete, so this will update it correctly
       await setDoc(roomsDoc, payload, { merge: true });
       
       // Update localStorage for local persistence
@@ -237,42 +240,50 @@ const Dashboard = () => {
         console.error("Error saving to localStorage:", error);
       }
       
-      console.log("✅ Firestore updated immediately - real-time sync triggered");
+      console.log(`✅ Firestore updated immediately - real-time sync triggered (${migratedRooms.length} rooms, updated by: ${nickname || "unknown"})`);
     } catch (error) {
       console.error("Error updating Firestore:", error);
+      // Re-throw error so caller knows update failed
+      throw error;
     }
   };
 
   // Wrapper function for RoomCard to update a single room immediately (for real-time sync)
   const updateRoomImmediately = async (roomNumber, roomUpdates) => {
     // Use functional update to ensure we have the latest state
-    setRooms(prevRooms => {
-      const updatedRooms = prevRooms.map(r => {
-        if (String(r.number) === String(roomNumber)) {
-          const updated = { ...r, ...roomUpdates };
-          // Track when room becomes vacant
-          if (updated.status === "vacant" && r.status !== "vacant") {
-            updated.vacantSince = new Date().toISOString();
-          } else if (updated.status !== "vacant" && r.status === "vacant") {
-            // Clear vacantSince when room becomes occupied
-            updated.vacantSince = undefined;
-          } else if (updated.status === "vacant" && r.status === "vacant") {
-            // Preserve vacantSince if room stays vacant
-            updated.vacantSince = r.vacantSince || new Date().toISOString();
+    const updatedRooms = await new Promise((resolve) => {
+      setRooms(prevRooms => {
+        const updated = prevRooms.map(r => {
+          if (String(r.number) === String(roomNumber)) {
+            const roomUpdate = { ...r, ...roomUpdates };
+            // Track when room becomes vacant
+            if (roomUpdate.status === "vacant" && r.status !== "vacant") {
+              roomUpdate.vacantSince = new Date().toISOString();
+            } else if (roomUpdate.status !== "vacant" && r.status === "vacant") {
+              // Clear vacantSince when room becomes occupied
+              roomUpdate.vacantSince = undefined;
+            } else if (roomUpdate.status === "vacant" && r.status === "vacant") {
+              // Preserve vacantSince if room stays vacant
+              roomUpdate.vacantSince = r.vacantSince || new Date().toISOString();
+            }
+            return roomUpdate;
           }
-          return updated;
-        }
-        return r;
+          return r;
+        });
+        resolve(updated);
+        return updated;
       });
-      
-      // Update Firestore immediately for real-time sync (no debounce)
-      // Firestore update happens asynchronously, won't block state update
-      updateFirestoreImmediately(updatedRooms).catch(err => {
-        console.error("Error updating room in Firestore:", err);
-      });
-      
-      return updatedRooms;
     });
+    
+    // Update Firestore immediately for real-time sync
+    // Wait for Firestore write to complete to ensure sync happens
+    try {
+      await updateFirestoreImmediately(updatedRooms);
+      console.log(`✅ Room ${roomNumber} updated and synced to Firestore`);
+    } catch (err) {
+      console.error("Error updating room in Firestore:", err);
+      // Still update local state even if Firestore fails
+    }
   };
 
   // Default rooms data (fallback if Firestore is empty)
@@ -447,39 +458,57 @@ const Dashboard = () => {
 
     // Set up real-time listener - Firestore is the ONLY data feed to UI
     // This listener is the single source of truth for all room updates
-    const unsubscribe = onSnapshot(roomsDoc, (snapshot) => {
-      // Skip during initial load to prevent double-loading
-      if (isInitialLoad.current) {
-                return;
-      }
-      
-      // Skip during PDF upload to prevent overwriting bulk updates
-      if (isUploadingPDF.current) {
-                return;
-              }
-      
-      if (snapshot.exists()) {
-        const data = snapshot.data();
-        
-        if (data.rooms && Array.isArray(data.rooms)) {
-          // Firestore is the source of truth - always accept updates
-          const migratedRooms = migrateMovedOutToCheckedOut(data.rooms);
-          setRooms(migratedRooms);
-          
-          // Update localStorage as read-only backup (don't use it to overwrite Firestore)
-          try {
-            localStorage.setItem('crystal_rooms', JSON.stringify(migratedRooms));
-          } catch (error) {
-            console.error("Error saving to localStorage:", error);
-          }
-          
-          console.log(`✅ Real-time sync: Updated from Firestore - ${migratedRooms.length} rooms`);
+    const unsubscribe = onSnapshot(roomsDoc, 
+      (snapshot) => {
+        // Skip during initial load to prevent double-loading
+        if (isInitialLoad.current) {
+          return;
         }
+        
+        // Skip during PDF upload to prevent overwriting bulk updates
+        // But only skip if we're actually uploading (not just if flag was set)
+        if (isUploadingPDF.current) {
+          console.log("⏸️ Skipping real-time update during PDF upload");
+          return;
+        }
+        
+        if (snapshot.exists()) {
+          const data = snapshot.data();
+          
+          if (data.rooms && Array.isArray(data.rooms)) {
+            // Firestore is the source of truth - always accept updates
+            const migratedRooms = migrateMovedOutToCheckedOut(data.rooms);
+            
+            // Always update state from Firestore to ensure real-time sync across all devices
+            // This ensures all devices see changes immediately
+            setRooms(migratedRooms);
+            
+            // Update localStorage as read-only backup (don't use it to overwrite Firestore)
+            try {
+              localStorage.setItem('crystal_rooms', JSON.stringify(migratedRooms));
+            } catch (error) {
+              console.error("Error saving to localStorage:", error);
+            }
+            
+            const updatedBy = data.updatedBy || "unknown";
+            console.log(`✅ Real-time sync: Updated from Firestore - ${migratedRooms.length} rooms (updated by: ${updatedBy})`);
+          } else {
+            console.warn("⚠️ Firestore data exists but rooms array is missing or invalid");
+          }
+        } else {
+          console.warn("⚠️ Firestore document does not exist");
+        }
+      },
+      (error) => {
+        console.error("❌ Error listening to Firestore:", error);
+        console.error("Error details:", {
+          code: error.code,
+          message: error.message
+        });
+        // DO NOT reset rooms on error - keep current state intact
+        // The listener will automatically retry on reconnection
       }
-    }, (error) => {
-      console.error("Error listening to Firestore:", error);
-      // DO NOT reset rooms on error - keep current state intact
-    });
+    );
 
     return () => unsubscribe();
   }, []); // Empty dependency array - only run once on mount
