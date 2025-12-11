@@ -158,7 +158,11 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
                   <div className="flex justify-between items-center mb-3">
                     <button
                       onClick={handleSelectRoom}
-                      className="bg-[#15803D] text-white px-6 py-3 rounded-lg text-lg sm:text-xl font-semibold hover:bg-[#166534] transition-colors"
+                      className={`px-6 py-3 rounded-lg text-lg sm:text-xl font-semibold transition-colors ${
+                        room.border === "red" 
+                          ? "bg-[#15803D] text-white hover:bg-[#166534]" 
+                          : "bg-green-200 text-black hover:bg-green-300"
+                      }`}
                     >
                       เลือกห้องนี้
                     </button>

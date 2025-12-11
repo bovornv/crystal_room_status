@@ -809,6 +809,18 @@ const Dashboard = () => {
           }, { merge: true });
           
           console.log(`✅ Stored ${roomsToUpdate.length} rooms in ${arrayKey}:`, roomsToUpdate);
+          
+          // Also store unoccupied_rooms_DD_MM_YYYY = all rooms - extracted rooms
+          const allRoomNumbers = rooms.map(r => String(r.number));
+          const unoccupiedRooms = allRoomNumbers.filter(roomNum => !roomsToUpdate.includes(roomNum));
+          const unoccupiedArrayKey = `unoccupied_rooms_${extractedDate}`;
+          await setDoc(doc(db, "reports", unoccupiedArrayKey), {
+            rooms: unoccupiedRooms, // Store the rooms NOT in the PDF
+            date: extractedDate,
+            uploadedAt: new Date().toISOString(),
+          }, { merge: true });
+          
+          console.log(`✅ Stored ${unoccupiedRooms.length} unoccupied rooms in ${unoccupiedArrayKey}:`, unoccupiedRooms);
         } catch (error) {
           console.error("Error storing occupied rooms:", error);
         }
@@ -1325,33 +1337,48 @@ const Dashboard = () => {
                   console.log(`   1 day ago: ${oneDayAgoStr}`);
                   console.log(`   2 days ago: ${twoDaysAgoStr}`);
                   
-                  // Step 4: Fetch occupied_rooms arrays from Firestore
+                  // Step 4: Fetch unoccupied_rooms arrays from Firestore
                   const reportsCollection = collection(db, "reports");
                   const snapshot = await getDocs(reportsCollection);
                   
-                  // Step 5: Collect union of occupied_rooms_today, occupied_rooms_1_day_ago, occupied_rooms_2_days_ago
-                  const occupiedRoomsSet = new Set();
+                  // Step 5: Fetch unoccupied_rooms arrays for today, 1 day ago, and 2 days ago
+                  const unoccupiedRoomsToday = new Set();
+                  const unoccupiedRoomsOneDayAgo = new Set();
+                  const unoccupiedRoomsTwoDaysAgo = new Set();
                   
-                  snapshot.docs.forEach(doc => {
-                    const docId = doc.id;
-                    if (docId.startsWith("occupied_rooms_")) {
-                      const dateStr = docId.replace("occupied_rooms_", "");
-                      // Check if this date matches today, 1 day ago, or 2 days ago
-                      if (dateStr === todayStr || dateStr === oneDayAgoStr || dateStr === twoDaysAgoStr) {
-                        const data = doc.data();
-                        if (data.rooms && Array.isArray(data.rooms)) {
+                  snapshot.docs.forEach(docSnap => {
+                    const docId = docSnap.id;
+                    if (docId.startsWith("unoccupied_rooms_")) {
+                      const dateStr = docId.replace("unoccupied_rooms_", "");
+                      const data = docSnap.data();
+                      if (data.rooms && Array.isArray(data.rooms)) {
+                        if (dateStr === todayStr) {
                           data.rooms.forEach(roomNum => {
-                            occupiedRoomsSet.add(String(roomNum));
+                            unoccupiedRoomsToday.add(String(roomNum));
                           });
-                          console.log(`   Found ${data.rooms.length} rooms in ${docId}`);
+                          console.log(`   Found ${data.rooms.length} unoccupied rooms for today (${docId})`);
+                        } else if (dateStr === oneDayAgoStr) {
+                          data.rooms.forEach(roomNum => {
+                            unoccupiedRoomsOneDayAgo.add(String(roomNum));
+                          });
+                          console.log(`   Found ${data.rooms.length} unoccupied rooms for 1 day ago (${docId})`);
+                        } else if (dateStr === twoDaysAgoStr) {
+                          data.rooms.forEach(roomNum => {
+                            unoccupiedRoomsTwoDaysAgo.add(String(roomNum));
+                          });
+                          console.log(`   Found ${data.rooms.length} unoccupied rooms for 2 days ago (${docId})`);
                         }
                       }
                     }
                   });
                   
-                  // Step 6: Compute unoccupied_rooms_3d = all rooms - union(occupied_rooms_today, occupied_rooms_1_day_ago, occupied_rooms_2_days_ago)
+                  // Step 6: Compute intersection of unoccupied_rooms_today, unoccupied_rooms_1_day_ago, unoccupied_rooms_2_days_ago
                   const allRoomNumbers = rooms.map(r => String(r.number));
-                  const unoccupied3d = allRoomNumbers.filter(roomNum => !occupiedRoomsSet.has(roomNum));
+                  const unoccupied3d = allRoomNumbers.filter(roomNum => 
+                    unoccupiedRoomsToday.has(roomNum) && 
+                    unoccupiedRoomsOneDayAgo.has(roomNum) && 
+                    unoccupiedRoomsTwoDaysAgo.has(roomNum)
+                  );
                   
                   // Step 7: Change room status of unoccupied_rooms_3d to purple (unoccupied_3d)
                   const updatedRooms = rooms.map(r => {
@@ -1371,28 +1398,31 @@ const Dashboard = () => {
                   await updateFirestoreImmediately(updatedRooms);
                   console.log(`✅ Updated ${unoccupied3d.length} rooms to unoccupied_3d status and synced to Firestore`);
                   
-                  // Step 8: Delete all arrays that start with occupied_rooms_
+                  // Step 8: Delete all arrays that start with occupied_rooms_ or unoccupied_rooms_
                   const reportsCollection = collection(db, "reports");
                   const allReportsSnapshot = await getDocs(reportsCollection);
                   const deletePromises = [];
                   
                   allReportsSnapshot.docs.forEach(docSnap => {
                     const docId = docSnap.id;
-                    if (docId.startsWith("occupied_rooms_")) {
+                    if (docId.startsWith("occupied_rooms_") || docId.startsWith("unoccupied_rooms_")) {
                       deletePromises.push(deleteDoc(doc(db, "reports", docId)));
                       console.log(`🗑️ Deleting ${docId}`);
                     }
                   });
                   
                   await Promise.all(deletePromises);
-                  console.log(`✅ Deleted ${deletePromises.length} occupied_rooms_ arrays`);
+                  console.log(`✅ Deleted ${deletePromises.length} occupied_rooms_ and unoccupied_rooms_ arrays`);
                   
                   console.log(`✅ Computed unoccupied_rooms_3d: ${unoccupied3d.length} rooms`);
                   console.log(`   Total rooms: ${allRoomNumbers.length}`);
-                  console.log(`   Occupied rooms (union of last 3 days): ${occupiedRoomsSet.size}`);
+                  console.log(`   Unoccupied today: ${unoccupiedRoomsToday.size}`);
+                  console.log(`   Unoccupied 1 day ago: ${unoccupiedRoomsOneDayAgo.size}`);
+                  console.log(`   Unoccupied 2 days ago: ${unoccupiedRoomsTwoDaysAgo.size}`);
+                  console.log(`   Intersection (unoccupied all 3 days): ${unoccupied3d.length} rooms`);
                   console.log(`   Unoccupied rooms:`, unoccupied3d);
                   
-                  alert(`อัปเดต ${unoccupied3d.length} ห้องเป็นสีม่วง (ไม่มีเข้าพัก 3 วันติด) และลบข้อมูล occupied_rooms_ ทั้งหมดแล้ว`);
+                  alert(`อัปเดต ${unoccupied3d.length} ห้องเป็นสีม่วง (ไม่มีเข้าพัก 3 วันติด) และลบข้อมูล occupied_rooms_ และ unoccupied_rooms_ ทั้งหมดแล้ว`);
                 } catch (error) {
                   console.error("Error computing unoccupied rooms:", error);
                   alert("เกิดข้อผิดพลาดในการคำนวณห้องที่ว่าง: " + error.message);
