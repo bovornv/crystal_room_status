@@ -485,6 +485,7 @@ const Dashboard = () => {
       (snapshot) => {
         // Skip during initial load to prevent double-loading
         if (isInitialLoad.current) {
+          console.log("⏸️ Skipping real-time update during initial load");
           return;
         }
         
@@ -503,8 +504,16 @@ const Dashboard = () => {
             const migratedRooms = migrateMovedOutToCheckedOut(data.rooms);
             
             // Always update state from Firestore to ensure real-time sync across all devices
-            // This ensures all devices see changes immediately
-            setRooms(migratedRooms);
+            // Firestore is the source of truth - always accept its updates
+            // Create a new array reference to ensure React detects the change and triggers re-render
+            const updatedBy = data.updatedBy || "unknown";
+            const lastUpdated = data.lastUpdated || "";
+            
+            console.log(`✅ Real-time sync: Received update from Firestore - ${migratedRooms.length} rooms (updated by: ${updatedBy}, timestamp: ${lastUpdated})`);
+            
+            // Always update state - Firestore is the source of truth
+            // Use spread operator to create new array reference, ensuring React detects change
+            setRooms([...migratedRooms]);
             
             // Update localStorage as read-only backup (don't use it to overwrite Firestore)
             try {
@@ -513,8 +522,7 @@ const Dashboard = () => {
               console.error("Error saving to localStorage:", error);
             }
             
-            const updatedBy = data.updatedBy || "unknown";
-            console.log(`✅ Real-time sync: Updated from Firestore - ${migratedRooms.length} rooms (updated by: ${updatedBy})`);
+            console.log(`✅ Real-time sync: State updated from Firestore - ${migratedRooms.length} rooms`);
           } else {
             console.warn("⚠️ Firestore data exists but rooms array is missing or invalid");
           }
