@@ -1399,7 +1399,6 @@ const Dashboard = () => {
                   console.log(`✅ Updated ${unoccupied3d.length} rooms to unoccupied_3d status and synced to Firestore`);
                   
                   // Step 8: Delete all arrays that start with occupied_rooms_ or unoccupied_rooms_
-                  const reportsCollection = collection(db, "reports");
                   const allReportsSnapshot = await getDocs(reportsCollection);
                   const deletePromises = [];
                   
