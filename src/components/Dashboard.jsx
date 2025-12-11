@@ -861,17 +861,29 @@ const Dashboard = () => {
   );
 
   // Calculate maid scores dynamically
-  // Deluxe = 1pt, Suite = 2pts, count both green (cleaned) and cyan (cleaned_stay) rooms
-  // Track by nickname (maid field) when status is changed to "cleaned" or "cleaned_stay"
+  // Green/Cyan: Deluxe = 1pt, Suite = 2pts
+  // Purple: Deluxe = 0.5pt, Suite = 1pt
+  // Track by nickname (maid field) when status is "cleaned", "cleaned_stay", or "unoccupied_3d"
   const calculateMaidScores = () => {
     const scores = {};
     rooms.forEach(room => {
-      if ((room.status === "cleaned" || room.status === "cleaned_stay") && room.maid) {
-        const isSuite = room.type?.toUpperCase().startsWith("S");
-        const points = isSuite ? 2 : 1;
+      if (room.maid) {
         const nickname = room.maid.trim();
         if (nickname) {
-        scores[nickname] = (scores[nickname] || 0) + points;
+          const isSuite = room.type?.toUpperCase().startsWith("S");
+          let points = 0;
+          
+          if (room.status === "cleaned" || room.status === "cleaned_stay") {
+            // Green/Cyan rooms: Deluxe = 1pt, Suite = 2pts
+            points = isSuite ? 2 : 1;
+          } else if (room.status === "unoccupied_3d") {
+            // Purple rooms: Deluxe = 0.5pt, Suite = 1pt
+            points = isSuite ? 1 : 0.5;
+          }
+          
+          if (points > 0) {
+            scores[nickname] = (scores[nickname] || 0) + points;
+          }
         }
       }
     });
@@ -1511,7 +1523,7 @@ const Dashboard = () => {
               maidEntries.map(([maid, score]) => (
                 <tr key={maid}>
                   <td>{maid}</td>
-                  <td className="text-right">{score}</td>
+                  <td className="text-right">{score % 1 === 0 ? score : score.toFixed(1)}</td>
                 </tr>
               ))
             ) : (
