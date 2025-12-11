@@ -1409,6 +1409,7 @@ const Dashboard = () => {
                 : "bg-purple-500 text-white hover:bg-purple-600"
             }`}
           >
+            {/* Button label in Thai */}
             3. ห้องไม่เข้าพัก 3วันติด
           </button>
         )}
