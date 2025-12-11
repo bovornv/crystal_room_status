@@ -269,6 +269,12 @@ const Dashboard = () => {
               // Preserve vacantSince if room stays vacant
               roomUpdate.vacantSince = r.vacantSince || new Date().toISOString();
             }
+            
+            // Remove wasPurpleBeforeCleaned if room is no longer green/cyan
+            if (roomUpdate.status !== "cleaned" && roomUpdate.status !== "cleaned_stay") {
+              delete roomUpdate.wasPurpleBeforeCleaned;
+            }
+            
             return roomUpdate;
           }
           return r;
@@ -925,24 +931,26 @@ const Dashboard = () => {
   );
 
   // Calculate maid scores dynamically
-  // Green/Cyan: Deluxe = 1pt, Suite = 2pts
-  // Purple: Deluxe = 0.5pt, Suite = 1pt
-  // Track by nickname (maid field) when status is "cleaned", "cleaned_stay", or "unoccupied_3d"
+  // If changing from any color (except purple) to green/cyan: Deluxe = 1pt, Suite = 2pts
+  // If changing from purple to green/cyan: Deluxe = 0.5pt, Suite = 1pt
+  // Track by nickname (maid field) when status is "cleaned" or "cleaned_stay"
   const calculateMaidScores = () => {
     const scores = {};
     rooms.forEach(room => {
-      if (room.maid) {
+      // Only score green/cyan rooms (not purple rooms)
+      if ((room.status === "cleaned" || room.status === "cleaned_stay") && room.maid) {
         const nickname = room.maid.trim();
         if (nickname) {
           const isSuite = room.type?.toUpperCase().startsWith("S");
           let points = 0;
           
-          if (room.status === "cleaned" || room.status === "cleaned_stay") {
-            // Green/Cyan rooms: Deluxe = 1pt, Suite = 2pts
-            points = isSuite ? 2 : 1;
-          } else if (room.status === "unoccupied_3d") {
-            // Purple rooms: Deluxe = 0.5pt, Suite = 1pt
+          // Check if room was purple before being cleaned
+          if (room.wasPurpleBeforeCleaned === true) {
+            // Changed from purple to green/cyan: Deluxe = 0.5pt, Suite = 1pt
             points = isSuite ? 1 : 0.5;
+          } else {
+            // Changed from any other color to green/cyan: Deluxe = 1pt, Suite = 2pts
+            points = isSuite ? 2 : 1;
           }
           
           if (points > 0) {

@@ -38,12 +38,21 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
     const wasCleaned = (status === "cleaned" || status === "cleaned_stay") && 
                         room.status !== "cleaned" && room.status !== "cleaned_stay";
     
+    // Track if room was purple before being cleaned (for scoring purposes)
+    const wasPurpleBeforeCleaned = wasCleaned && room.status === "unoccupied_3d";
+    
     const roomUpdates = {
       status,
       border: "black",
       maid: isFO ? (room.maid || "") : ((status === "cleaned" || status === "cleaned_stay") ? currentNickname.trim() : (room.maid || "")),
       cleanedToday: wasCleaned ? true : (room.cleanedToday || false),
     };
+    
+    // Only add wasPurpleBeforeCleaned if it's true (for scoring)
+    // If false or not applicable, don't include it (will be removed from existing rooms)
+    if (wasPurpleBeforeCleaned) {
+      roomUpdates.wasPurpleBeforeCleaned = true;
+    }
 
     if (updateRoomImmediately) {
       await updateRoomImmediately(room.number, roomUpdates);
