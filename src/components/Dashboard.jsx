@@ -229,9 +229,12 @@ const Dashboard = () => {
         updatedBy: nickname || "unknown" // Track who made the update for debugging
       };
       
+      // Remove all undefined values before sending to Firestore
+      const cleanedPayload = removeUndefinedValues(payload);
+      
       // Use setDoc with merge: true to preserve other document fields
       // The rooms array is always complete, so this will update it correctly
-      await setDoc(roomsDoc, payload, { merge: true });
+      await setDoc(roomsDoc, cleanedPayload, { merge: true });
       
       // Update localStorage for local persistence
       try {
@@ -260,8 +263,8 @@ const Dashboard = () => {
             if (roomUpdate.status === "vacant" && r.status !== "vacant") {
               roomUpdate.vacantSince = new Date().toISOString();
             } else if (roomUpdate.status !== "vacant" && r.status === "vacant") {
-              // Clear vacantSince when room becomes occupied
-              roomUpdate.vacantSince = undefined;
+              // Clear vacantSince when room becomes occupied (remove it, don't set to undefined)
+              delete roomUpdate.vacantSince;
             } else if (roomUpdate.status === "vacant" && r.status === "vacant") {
               // Preserve vacantSince if room stays vacant
               roomUpdate.vacantSince = r.vacantSince || new Date().toISOString();
@@ -381,6 +384,26 @@ const Dashboard = () => {
     { number: "111", type: "D5", floor: 1, status: "vacant", maid: "", remark: "", cleanedToday: false },
   ];
 
+  // Helper function to remove undefined values from objects (Firestore doesn't allow undefined)
+  const removeUndefinedValues = (obj) => {
+    if (obj === null || obj === undefined) {
+      return obj;
+    }
+    if (Array.isArray(obj)) {
+      return obj.map(item => removeUndefinedValues(item));
+    }
+    if (typeof obj === 'object') {
+      const cleaned = {};
+      for (const key in obj) {
+        if (obj[key] !== undefined) {
+          cleaned[key] = removeUndefinedValues(obj[key]);
+        }
+      }
+      return cleaned;
+    }
+    return obj;
+  };
+
   // Helper function to migrate moved_out to checked_out (consolidate statuses)
   // Also ensure all rooms have a border field (default to black if missing)
   // Initialize vacantSince for vacant rooms that don't have it
@@ -395,8 +418,8 @@ const Dashboard = () => {
       if (migrated.status === "vacant" && !migrated.vacantSince) {
         migrated.vacantSince = new Date().toISOString();
       } else if (migrated.status !== "vacant") {
-        // Clear vacantSince when room is not vacant
-        migrated.vacantSince = undefined;
+        // Remove vacantSince when room is not vacant (don't set to undefined)
+        delete migrated.vacantSince;
       }
       return migrated;
     });
@@ -709,18 +732,22 @@ const Dashboard = () => {
           if (type === "inhouse") {
             // In-House PDF: set to blue (stay_clean)
             // Preserve border (keep existing or default to black)
-            // Clear vacantSince when room becomes occupied
+            // Clear vacantSince when room becomes occupied (remove it, don't set to undefined)
             console.log(`Updating room ${r.number} to stay_clean (blue)`);
-            return { ...r, status: "stay_clean", cleanedToday: false, border: r.border || "black", vacantSince: undefined };
+            const updated = { ...r, status: "stay_clean", cleanedToday: false, border: r.border || "black" };
+            delete updated.vacantSince; // Remove vacantSince instead of setting to undefined
+            return updated;
           }
           if (type === "departure") {
             // Expected Departure PDF: set to yellow (will_depart_today)
             // Preserve border (keep existing or default to black)
             // Skip if it's a long-stay room (already handled above - they become gray-200/long_stay)
-            // Clear vacantSince when room becomes occupied
+            // Clear vacantSince when room becomes occupied (remove it, don't set to undefined)
             if (!isLongStay) {
               console.log(`Updating room ${r.number} to will_depart_today (yellow)`);
-              return { ...r, status: "will_depart_today", cleanedToday: false, border: r.border || "black", vacantSince: undefined };
+              const updated = { ...r, status: "will_depart_today", cleanedToday: false, border: r.border || "black" };
+              delete updated.vacantSince; // Remove vacantSince instead of setting to undefined
+              return updated;
             }
           }
         }
