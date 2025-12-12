@@ -1637,6 +1637,21 @@ const Dashboard = () => {
         >
           ลบข้อมูล
         </button>
+        {nickname === "FO" && (
+          <button
+            onClick={() => {
+              if (!isLoggedIn || nickname !== "FO") {
+                setShowLoginModal(true);
+                return;
+              }
+              setShowUnoccupied3dModal(true);
+            }}
+            className="px-4 py-2 rounded-lg shadow-md transition-colors inline-block select-none bg-purple-500 text-white hover:bg-purple-600"
+          >
+            {/* Button label in Thai */}
+            3. แสดงห้องไม่เข้าพัก 3 วันติด
+          </button>
+        )}
         <div className="relative">
           <input 
             ref={inhouseFileInputRef}
@@ -1713,21 +1728,6 @@ const Dashboard = () => {
             📄 2. Upload Expected Departure PDF
           </label>
         </div>
-        {nickname === "FO" && (
-          <button
-            onClick={() => {
-              if (!isLoggedIn || nickname !== "FO") {
-                setShowLoginModal(true);
-                return;
-              }
-              setShowUnoccupied3dModal(true);
-            }}
-            className="px-4 py-2 rounded-lg shadow-md transition-colors inline-block select-none bg-purple-500 text-white hover:bg-purple-600"
-          >
-            {/* Button label in Thai */}
-            3. แสดงห้องไม่เข้าพัก 3 วันติด
-          </button>
-        )}
       </div>
       )}
 
