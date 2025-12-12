@@ -879,18 +879,6 @@ const Dashboard = () => {
           }, { merge: true });
           
           console.log(`✅ Stored ${roomsToUpdate.length} rooms in ${arrayKey}:`, roomsToUpdate);
-          
-          // Also store unoccupied_rooms_DD_MM_YYYY = all rooms - extracted rooms
-          const allRoomNumbers = rooms.map(r => String(r.number));
-          const unoccupiedRooms = allRoomNumbers.filter(roomNum => !roomsToUpdate.includes(roomNum));
-          const unoccupiedArrayKey = `unoccupied_rooms_${extractedDate}`;
-          await setDoc(doc(db, "reports", unoccupiedArrayKey), {
-            rooms: unoccupiedRooms, // Store the rooms NOT in the PDF
-            date: extractedDate,
-            uploadedAt: new Date().toISOString(),
-          }, { merge: true });
-          
-          console.log(`✅ Stored ${unoccupiedRooms.length} unoccupied rooms in ${unoccupiedArrayKey}:`, unoccupiedRooms);
         } catch (error) {
           console.error("Error storing occupied rooms:", error);
         }
