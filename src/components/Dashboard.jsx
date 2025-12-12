@@ -66,6 +66,13 @@ const Dashboard = () => {
   const [inhouseRoomCount, setInhouseRoomCount] = useState(0); // Count from in-house PDF
   const [showUnoccupiedRooms, setShowUnoccupiedRooms] = useState(false); // Toggle showing rooms unoccupied for 3+ days
   const [unoccupiedRooms3d, setUnoccupiedRooms3d] = useState(new Set()); // Set of room numbers unoccupied for 3+ days
+  const [showUnoccupied3dModal, setShowUnoccupied3dModal] = useState(false); // Show popup for 3-day unoccupied rooms
+  const [unoccupiedRoomsD0, setUnoccupiedRoomsD0] = useState([]); // Unoccupied rooms for today
+  const [unoccupiedRoomsD1, setUnoccupiedRoomsD1] = useState([]); // Unoccupied rooms for 1 day ago
+  const [unoccupiedRoomsD2, setUnoccupiedRoomsD2] = useState([]); // Unoccupied rooms for 2 days ago
+  const unoccupied3dFileInputRef0 = useRef(null); // Ref for today PDF input
+  const unoccupied3dFileInputRef1 = useRef(null); // Ref for 1 day ago PDF input
+  const unoccupied3dFileInputRef2 = useRef(null); // Ref for 2 days ago PDF input
   
   // Update time every minute
   useEffect(() => {
@@ -879,6 +886,18 @@ const Dashboard = () => {
           }, { merge: true });
           
           console.log(`✅ Stored ${roomsToUpdate.length} rooms in ${arrayKey}:`, roomsToUpdate);
+          
+          // Also store unoccupied_rooms_DD_MM_YYYY = all rooms - extracted rooms
+          const allRoomNumbers = rooms.map(r => String(r.number));
+          const unoccupiedRooms = allRoomNumbers.filter(roomNum => !roomsToUpdate.includes(roomNum));
+          const unoccupiedArrayKey = `unoccupied_rooms_${extractedDate}`;
+          await setDoc(doc(db, "reports", unoccupiedArrayKey), {
+            rooms: unoccupiedRooms, // Store the rooms NOT in the PDF
+            date: extractedDate,
+            uploadedAt: new Date().toISOString(),
+          }, { merge: true });
+          
+          console.log(`✅ Stored ${unoccupiedRooms.length} unoccupied rooms in ${unoccupiedArrayKey}:`, unoccupiedRooms);
         } catch (error) {
           console.error("Error storing occupied rooms:", error);
         }
@@ -908,6 +927,212 @@ const Dashboard = () => {
       console.error("Error processing PDF:", error);
       alert(`เกิดข้อผิดพลาดในการประมวลผล PDF: ${error.message}`);
       isUploadingPDF.current = false;
+    }
+  };
+
+  // Handler for uploading in-house PDFs in the 3-day unoccupied popup
+  const handleUnoccupied3dPDFUpload = async (dayIndex, file) => {
+    if (!file) {
+      console.log("No file selected");
+      return;
+    }
+    
+    // Require login for PDF uploads
+    if (!isLoggedIn) {
+      setShowLoginModal(true);
+      return;
+    }
+    
+    // Only allow "FO" to upload PDFs
+    if (nickname !== "FO") {
+      alert("คุณไม่สามารถกดปุ่มนี้");
+      return;
+    }
+    
+    try {
+      console.log(`Starting unoccupied 3d PDF upload: day ${dayIndex}`);
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+      let allText = "";
+      let textItemsWithPosition = [];
+      let firstPage = null;
+      
+      // Extract text from all pages
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items.map(item => item.str).join(" ");
+        allText += " " + pageText;
+        
+        if (i === 1) {
+          firstPage = page;
+        }
+        
+        const pageItems = textContent.items.map(item => ({
+          str: item.str,
+          x: item.transform ? item.transform[4] : 0,
+          y: item.transform ? item.transform[5] : 0,
+          pageNum: i,
+        }));
+        textItemsWithPosition.push(...pageItems);
+      }
+
+      // Get all valid room numbers
+      const roomMatches = allText.match(/\b\d{3}\b/g) || [];
+      const validRoomNumbers = roomMatches
+        .filter(num => {
+          const firstDigit = parseInt(num[0]);
+          return firstDigit >= 1 && firstDigit <= 6;
+        })
+        .filter((num, idx, arr) => arr.indexOf(num) === idx);
+
+      // Get existing room numbers from rooms state
+      const validExistingRooms = rooms.map(r => String(r.number));
+      
+      // Extract room numbers from first column of all pages
+      let roomsToUpdate = [];
+      if (firstPage && textItemsWithPosition.length > 0) {
+        try {
+          const viewport = firstPage.getViewport({ scale: 1.0 });
+          const pageWidth = viewport.width;
+          const firstColumnMaxX = pageWidth * 0.3;
+          
+          const firstColumnItems = textItemsWithPosition.filter(item => 
+            item.x < firstColumnMaxX && item.y < 700
+          );
+          
+          const pageRows = {};
+          firstColumnItems.forEach(item => {
+            const pageKey = item.pageNum;
+            const rowKey = Math.round(item.y / 5) * 5;
+            const key = `${pageKey}_${rowKey}`;
+            if (!pageRows[key]) pageRows[key] = [];
+            pageRows[key].push(item);
+          });
+          
+          const firstColumnRooms = [];
+          const roomNumberPattern = /^\d{3}$/;
+          
+          Object.keys(pageRows)
+            .sort((a, b) => {
+              const [pageA, rowA] = a.split('_').map(Number);
+              const [pageB, rowB] = b.split('_').map(Number);
+              if (pageA !== pageB) return pageA - pageB;
+              return rowB - rowA;
+            })
+            .forEach(key => {
+              const rowItems = pageRows[key].sort((a, b) => a.x - b.x);
+              for (const item of rowItems) {
+                if (roomNumberPattern.test(item.str)) {
+                  const roomNum = item.str;
+                  if (validExistingRooms.includes(roomNum) && !firstColumnRooms.includes(roomNum)) {
+                    firstColumnRooms.push(roomNum);
+                    break;
+                  }
+                }
+              }
+            });
+          
+          if (firstColumnRooms.length > 0) {
+            roomsToUpdate = firstColumnRooms;
+            console.log(`📋 Extracted ${firstColumnRooms.length} rooms from first column (all pages):`, firstColumnRooms);
+          }
+        } catch (error) {
+          console.error("Error extracting first column rooms:", error);
+        }
+      }
+      
+      // Calculate unoccupied_rooms_d_X = all rooms - extracted rooms
+      const allRoomNumbers = rooms.map(r => String(r.number));
+      const unoccupiedRooms = allRoomNumbers.filter(roomNum => !roomsToUpdate.includes(roomNum));
+      
+      // Store in appropriate state
+      if (dayIndex === 0) {
+        setUnoccupiedRoomsD0(unoccupiedRooms);
+        console.log(`✅ Stored unoccupied_rooms_d_0: ${unoccupiedRooms.length} rooms`);
+        alert(`อัปเดตสำเร็จ: พบ ${unoccupiedRooms.length} ห้องที่ไม่เข้าพัก (วันนี้)`);
+      } else if (dayIndex === 1) {
+        setUnoccupiedRoomsD1(unoccupiedRooms);
+        console.log(`✅ Stored unoccupied_rooms_d_1: ${unoccupiedRooms.length} rooms`);
+        alert(`อัปเดตสำเร็จ: พบ ${unoccupiedRooms.length} ห้องที่ไม่เข้าพัก (1 วันก่อน)`);
+      } else if (dayIndex === 2) {
+        setUnoccupiedRoomsD2(unoccupiedRooms);
+        console.log(`✅ Stored unoccupied_rooms_d_2: ${unoccupiedRooms.length} rooms`);
+        alert(`อัปเดตสำเร็จ: พบ ${unoccupiedRooms.length} ห้องที่ไม่เข้าพัก (2 วันก่อน)`);
+      }
+      
+      // Reset file input
+      if (dayIndex === 0 && unoccupied3dFileInputRef0.current) {
+        unoccupied3dFileInputRef0.current.value = "";
+      } else if (dayIndex === 1 && unoccupied3dFileInputRef1.current) {
+        unoccupied3dFileInputRef1.current.value = "";
+      } else if (dayIndex === 2 && unoccupied3dFileInputRef2.current) {
+        unoccupied3dFileInputRef2.current.value = "";
+      }
+    } catch (error) {
+      console.error("Error processing unoccupied 3d PDF:", error);
+      alert(`เกิดข้อผิดพลาดในการประมวลผล PDF: ${error.message}`);
+    }
+  };
+
+  // Handler for calculating intersection and updating rooms to purple
+  const handleCalculateUnoccupied3d = async () => {
+    try {
+      // Compute intersection: unoccupied_rooms_3d = intersection(unoccupied_rooms_d_0, unoccupied_rooms_d_1, unoccupied_rooms_d_2)
+      const unoccupied3d = unoccupiedRoomsD0.filter(roomNum => 
+        unoccupiedRoomsD1.includes(roomNum) && unoccupiedRoomsD2.includes(roomNum)
+      );
+      
+      console.log(`📊 Computing intersection:`);
+      console.log(`   D0 (today): ${unoccupiedRoomsD0.length} rooms`);
+      console.log(`   D1 (1 day ago): ${unoccupiedRoomsD1.length} rooms`);
+      console.log(`   D2 (2 days ago): ${unoccupiedRoomsD2.length} rooms`);
+      console.log(`   Intersection: ${unoccupied3d.length} rooms`);
+      
+      // Change room status of unoccupied_rooms_3d to purple (unoccupied_3d)
+      const updatedRooms = rooms.map(r => {
+        const roomNumStr = String(r.number);
+        if (unoccupied3d.includes(roomNumStr)) {
+          return { ...r, status: "unoccupied_3d" };
+        }
+        return r;
+      });
+      
+      // Update state
+      setRooms(updatedRooms);
+      setUnoccupiedRooms3d(new Set(unoccupied3d));
+      
+      // Save to Firestore immediately for real-time sync
+      await updateFirestoreImmediately(updatedRooms);
+      console.log(`✅ Updated ${unoccupied3d.length} rooms to unoccupied_3d status and synced to Firestore`);
+      
+      // Delete all arrays whose name starts with unoccupied_rooms
+      const reportsCollection = collection(db, "reports");
+      const allReportsSnapshot = await getDocs(reportsCollection);
+      const deletePromises = [];
+      
+      allReportsSnapshot.docs.forEach(docSnap => {
+        const docId = docSnap.id;
+        if (docId.startsWith("unoccupied_rooms_")) {
+          deletePromises.push(deleteDoc(doc(db, "reports", docId)));
+          console.log(`🗑️ Deleting ${docId}`);
+        }
+      });
+      
+      await Promise.all(deletePromises);
+      console.log(`✅ Deleted ${deletePromises.length} unoccupied_rooms_ arrays`);
+      
+      alert(`อัปเดต ${unoccupied3d.length} ห้องเป็นสีม่วง (ไม่มีเข้าพัก 3 วันติด) และลบข้อมูล unoccupied_rooms_ ทั้งหมดแล้ว`);
+      
+      // Close modal and reset state
+      setShowUnoccupied3dModal(false);
+      setUnoccupiedRoomsD0([]);
+      setUnoccupiedRoomsD1([]);
+      setUnoccupiedRoomsD2([]);
+    } catch (error) {
+      console.error("Error calculating unoccupied 3d rooms:", error);
+      alert("เกิดข้อผิดพลาดในการคำนวณห้องที่ว่าง: " + error.message);
     }
   };
 
@@ -1155,6 +1380,120 @@ const Dashboard = () => {
         </div>
       )}
 
+      {/* Modal for 3-day unoccupied rooms */}
+      {showUnoccupied3dModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-2xl shadow-lg max-h-[90vh] overflow-y-auto">
+            <h2 className="font-semibold text-xl mb-6 text-center text-purple-600">
+              หาห้องที่ไม่เข้าพัก 3 วันติด
+            </h2>
+            
+            <div className="space-y-4 mb-6">
+              {/* Today PDF Upload */}
+              <div className="border-2 border-gray-300 rounded-lg p-4">
+                <label className="block text-sm font-semibold mb-2 text-gray-700">
+                  อัปโหลด In-House PDF (วันนี้)
+                </label>
+                <input 
+                  ref={unoccupied3dFileInputRef0}
+                  type="file" 
+                  accept=".pdf"
+                  className="hidden"
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      handleUnoccupied3dPDFUpload(0, file);
+                    }
+                  }}
+                />
+                <button
+                  onClick={() => unoccupied3dFileInputRef0.current?.click()}
+                  className="w-full px-4 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-base font-semibold"
+                >
+                  {unoccupiedRoomsD0.length > 0 ? `✓ อัปโหลดแล้ว (${unoccupiedRoomsD0.length} ห้อง)` : "เลือกไฟล์ PDF"}
+                </button>
+              </div>
+
+              {/* 1 Day Ago PDF Upload */}
+              <div className="border-2 border-gray-300 rounded-lg p-4">
+                <label className="block text-sm font-semibold mb-2 text-gray-700">
+                  อัปโหลด In-House PDF (1 วันก่อน)
+                </label>
+                <input 
+                  ref={unoccupied3dFileInputRef1}
+                  type="file" 
+                  accept=".pdf"
+                  className="hidden"
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      handleUnoccupied3dPDFUpload(1, file);
+                    }
+                  }}
+                />
+                <button
+                  onClick={() => unoccupied3dFileInputRef1.current?.click()}
+                  className="w-full px-4 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-base font-semibold"
+                >
+                  {unoccupiedRoomsD1.length > 0 ? `✓ อัปโหลดแล้ว (${unoccupiedRoomsD1.length} ห้อง)` : "เลือกไฟล์ PDF"}
+                </button>
+              </div>
+
+              {/* 2 Days Ago PDF Upload */}
+              <div className="border-2 border-gray-300 rounded-lg p-4">
+                <label className="block text-sm font-semibold mb-2 text-gray-700">
+                  อัปโหลด In-House PDF (2 วันก่อน)
+                </label>
+                <input 
+                  ref={unoccupied3dFileInputRef2}
+                  type="file" 
+                  accept=".pdf"
+                  className="hidden"
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      handleUnoccupied3dPDFUpload(2, file);
+                    }
+                  }}
+                />
+                <button
+                  onClick={() => unoccupied3dFileInputRef2.current?.click()}
+                  className="w-full px-4 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-base font-semibold"
+                >
+                  {unoccupiedRoomsD2.length > 0 ? `✓ อัปโหลดแล้ว (${unoccupiedRoomsD2.length} ห้อง)` : "เลือกไฟล์ PDF"}
+                </button>
+              </div>
+            </div>
+
+            {/* Calculate Button */}
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowUnoccupied3dModal(false);
+                  setUnoccupiedRoomsD0([]);
+                  setUnoccupiedRoomsD1([]);
+                  setUnoccupiedRoomsD2([]);
+                }}
+                className="flex-1 px-4 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors text-base font-semibold"
+              >
+                ปิด
+              </button>
+              <button
+                onClick={handleCalculateUnoccupied3d}
+                disabled={unoccupiedRoomsD0.length === 0 || unoccupiedRoomsD1.length === 0 || unoccupiedRoomsD2.length === 0}
+                className={`flex-1 px-4 py-3 rounded-lg transition-colors text-base font-semibold ${
+                  unoccupiedRoomsD0.length > 0 && unoccupiedRoomsD1.length > 0 && unoccupiedRoomsD2.length > 0
+                    ? "bg-purple-600 text-white hover:bg-purple-700"
+                    : "bg-gray-400 text-gray-200 cursor-not-allowed"
+                }`}
+              >
+                หาห้องที่ไม่เข้าพัก 3วันติด
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="text-center mb-6 relative">
         {/* Login/User Pill Button - Top Right */}
@@ -1377,9 +1716,13 @@ const Dashboard = () => {
         {nickname === "FO" && (
           <button
             onClick={() => {
-              // Button actions removed - no functionality
+              if (!isLoggedIn || nickname !== "FO") {
+                setShowLoginModal(true);
+                return;
+              }
+              setShowUnoccupied3dModal(true);
             }}
-            className="px-4 py-2 rounded-lg shadow-md transition-colors inline-block select-none bg-purple-500 text-white hover:bg-purple-600 cursor-not-allowed opacity-60"
+            className="px-4 py-2 rounded-lg shadow-md transition-colors inline-block select-none bg-purple-500 text-white hover:bg-purple-600"
           >
             {/* Button label in Thai */}
             3. แสดงห้องไม่เข้าพัก 3 วันติด
