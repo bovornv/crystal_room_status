@@ -60,20 +60,14 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
   };
 
   const handleSelectRoom = async () => {
-    if (!isLoggedIn || !currentNickname || isFO) {
-      if (!isLoggedIn) onLoginRequired();
-      return;
-    }
-
-    const newBorder = room.border === "red" ? "black" : "red";
-    const roomUpdates = {
-      border: newBorder,
-      maid: currentNickname.trim(),
-    };
-
-    if (updateRoomImmediately) {
-      await updateRoomImmediately(room.number, roomUpdates);
-    }
+    // Disabled: "เลือกห้องนี้" button should not change room properties
+    // Only the 5 specified actions should change room card properties:
+    // 1. FO presses "ลบข้อมูล"
+    // 2. FO uploads in-house PDF
+    // 3. FO uploads expected departure PDF
+    // 4. FO presses "0. แสดงห้องไม่เข้าพัก 3วันติด"
+    // 5. Users manually change room status and press "บันทึก"
+    return;
   };
 
   const handleSaveRemark = async () => {
@@ -167,11 +161,8 @@ const RoomCard = ({ room, updateRoomImmediately, isLoggedIn, onLoginRequired, cu
                   <div className="flex justify-between items-center mb-3">
                     <button
                       onClick={handleSelectRoom}
-                      className={`px-6 py-3 rounded-lg text-lg sm:text-xl font-semibold transition-colors ${
-                        room.border === "red" 
-                          ? "bg-[#15803D] text-white hover:bg-[#166534]" 
-                          : "bg-green-200 text-black hover:bg-green-300"
-                      }`}
+                      disabled
+                      className="px-6 py-3 rounded-lg text-lg sm:text-xl font-semibold transition-colors bg-gray-300 text-gray-500 cursor-not-allowed opacity-60"
                     >
                       เลือกห้องนี้
                     </button>
