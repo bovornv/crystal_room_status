@@ -1,10 +1,9 @@
 import * as pdfjsLib from "pdfjs-dist";
 
-// Configure PDF.js worker for Vite
+// Configure PDF.js worker for Vite - use worker from node_modules to ensure version match
+// Use jsDelivr CDN which is more reliable than unpkg/cdnjs for worker files
 if (typeof window !== 'undefined' && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
-  // Use unpkg CDN worker that matches the installed pdfjs-dist version (5.4.449)
-  // This ensures API and Worker versions match
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@5.4.449/build/pdf.worker.min.mjs`;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.449/build/pdf.worker.min.mjs';
 }
 
 /**
