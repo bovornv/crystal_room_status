@@ -7,8 +7,9 @@ import { collection, doc, getDoc, getDocs, setDoc, deleteDoc, onSnapshot, server
 
 // Configure PDF.js worker for Vite
 if (typeof window !== 'undefined' && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
-  // Use local worker file from public folder (more reliable than CDN)
-  pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+  // Use CDN worker that matches the installed pdfjs-dist version (5.4.449)
+  // This ensures API and Worker versions match
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/5.4.449/pdf.worker.min.mjs`;
 }
 
 // Login Modal Component
