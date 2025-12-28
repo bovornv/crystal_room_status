@@ -1920,8 +1920,30 @@ const Dashboard = () => {
                   />
                 </td>
               </tr>
-              {/* ทางเดินชั้น 1-6 - บ่าย only */}
-              {[1, 2, 3, 4, 5, 6].map(floor => (
+              {/* ทางเดินชั้น 1 - เช้า and บ่าย */}
+              <tr>
+                <td className="p-2 font-medium text-base sm:text-lg">ทางเดินชั้น 1</td>
+                <td className="p-2">
+                  <CommonAreaCard
+                    area="ทางเดินชั้น 1"
+                    time="เช้า"
+                    data={commonAreas.find(a => a.id === "hall-1-morning")}
+                    nickname={nickname}
+                    isFO={nickname === "FO"}
+                  />
+                </td>
+                <td className="p-2">
+                  <CommonAreaCard
+                    area="ทางเดินชั้น 1"
+                    time="บ่าย"
+                    data={commonAreas.find(a => a.id === "hall-1-afternoon")}
+                    nickname={nickname}
+                    isFO={nickname === "FO"}
+                  />
+                </td>
+              </tr>
+              {/* ทางเดินชั้น 2-6 - บ่าย only */}
+              {[2, 3, 4, 5, 6].map(floor => (
                 <tr key={floor}>
                   <td className="p-2 font-medium text-base sm:text-lg">ทางเดินชั้น {floor}</td>
                   <td className="p-2">—</td>
